@@ -7,14 +7,42 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User accounts from Google OAuth
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
+
+enum WorkspaceRole {
+  admin
+  editor
+  viewer
+  member
+}
+
+enum SubscriptionPlan {
+  free
+  pro
+  enterprise
+}
+
+enum SubscriptionStatus {
+  active
+  canceled
+  past_due
+}
+
+//////////////////////////////////////////////////////
+// USER
+//////////////////////////////////////////////////////
+
 model User {
   id            String     @id @default(cuid())
   email         String     @unique
   name          String?
   image         String?
+  passwordHash  String?
   balance       Int        @default(100000)
   emailVerified DateTime?
+
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -28,20 +56,24 @@ model User {
   @@index([email])
 }
 
-// OAuth accounts
+//////////////////////////////////////////////////////
+// NEXTAUTH
+//////////////////////////////////////////////////////
+
 model Account {
-  id                 String  @id @default(cuid())
-  userId             String
-  type               String
-  provider           String
-  providerAccountId  String
-  refresh_token      String?
-  access_token       String?
-  expires_at         Int?
-  token_type         String?
-  scope              String?
-  id_token           String?
-  session_state      String?
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -49,12 +81,12 @@ model Account {
   @@index([userId])
 }
 
-// Sessions for NextAuth
 model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique
   userId       String
   expires      DateTime
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -63,7 +95,6 @@ model Session {
   @@index([userId])
 }
 
-// Verification tokens
 model VerificationToken {
   identifier String
   token      String   @unique
@@ -72,34 +103,38 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// Workspaces (organizations in SaaS)
+//////////////////////////////////////////////////////
+// WORKSPACE
+//////////////////////////////////////////////////////
+
 model Workspace {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
   image     String?
+
   createdBy String
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
-  creator   User                @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  members   WorkspaceMember[]
-  projects  Project[]
-  apiKeys   ApiKey[]
+  creator      User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  members      WorkspaceMember[]
+  projects     Project[]
+  apiKeys      ApiKey[]
   subscription Subscription?
 
   @@index([createdBy])
   @@index([slug])
 }
 
-// Workspace membership with roles
 model WorkspaceMember {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   workspaceId String
   userId      String
-  role        String   @default("member") // admin, editor, viewer
-  joinedAt    DateTime @default(now())
+  role        WorkspaceRole @default(member)
+
+  joinedAt    DateTime      @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -109,30 +144,36 @@ model WorkspaceMember {
   @@index([userId])
 }
 
-// Projects within workspaces
+//////////////////////////////////////////////////////
+// PROJECT
+//////////////////////////////////////////////////////
+
 model Project {
   id          String   @id @default(cuid())
   workspaceId String
+
   name        String
   description String?
   prompt      String?
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   files     ProjectFile[]
   history   GenerationHistory[]
 
   @@index([workspaceId])
 }
 
-// Generated files per project
 model ProjectFile {
   id        String   @id @default(cuid())
   projectId String
+
   path      String
   content   String
   language  String   @default("typescript")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -141,14 +182,15 @@ model ProjectFile {
   @@index([projectId])
 }
 
-// Track generation history
 model GenerationHistory {
-  id          String   @id @default(cuid())
-  projectId   String
-  prompt      String
-  result      String
-  tokensUsed  Int      @default(0)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  projectId  String
+
+  prompt     String
+  result     String
+  tokensUsed Int      @default(0)
+
+  createdAt  DateTime @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -156,15 +198,21 @@ model GenerationHistory {
   @@index([createdAt])
 }
 
-// API Keys for workspace
+//////////////////////////////////////////////////////
+// API KEY
+//////////////////////////////////////////////////////
+
 model ApiKey {
   id          String   @id @default(cuid())
   workspaceId String
+
   key         String   @unique
   name        String
+
   lastUsed    DateTime?
-  createdAt   DateTime @default(now())
   expiresAt   DateTime?
+
+  createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -172,29 +220,43 @@ model ApiKey {
   @@index([key])
 }
 
-// Subscription/Billing
+//////////////////////////////////////////////////////
+// SUBSCRIPTION
+//////////////////////////////////////////////////////
+
 model Subscription {
-  id            String   @id @default(cuid())
-  workspaceId   String   @unique
-  plan          String   @default("free") // free, pro, enterprise
-  status        String   @default("active") // active, canceled, past_due
-  tokensLimit   Int      @default(10000)
-  tokensUsed    Int      @default(0)
-  renewalDate   DateTime?
-  canceledAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String             @id @default(cuid())
+  workspaceId String             @unique
+
+  plan        SubscriptionPlan   @default(free)
+  status      SubscriptionStatus @default(active)
+
+  tokensLimit Int                @default(10000)
+  tokensUsed  Int                @default(0)
+
+  renewalDate DateTime?
+  canceledAt  DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
+//////////////////////////////////////////////////////
+// MODEL CONFIG
+//////////////////////////////////////////////////////
+
 model ModelConfig {
   id        String   @id @default(cuid())
   key       String   @unique
+
   provider  String
   modelName String
   price     Int
+
   isActive  Boolean  @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -204,19 +266,28 @@ model ModelConfig {
   @@index([isActive])
 }
 
+//////////////////////////////////////////////////////
+// USAGE LOG
+//////////////////////////////////////////////////////
+
 model UsageLog {
-  id           String      @id @default(cuid())
-  userId       String
+  id            String   @id @default(cuid())
+  userId        String
   modelConfigId String
-  model        String
-  provider     String
-  cost         Int
-  prompt       String
-  status       String      @default("pending")
-  errorMessage String?
-  refundedAt   DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+
+  model         String
+  provider      String
+  cost          Int
+
+  prompt        String
+
+  status        String   @default("pending")
+  errorMessage  String?
+
+  refundedAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   modelConfig ModelConfig @relation(fields: [modelConfigId], references: [id], onDelete: Cascade)
