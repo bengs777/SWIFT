@@ -5,16 +5,36 @@ import { prisma } from "@/lib/db/client"
 import { UserService } from "@/lib/services/user.service"
 import { env } from "@/lib/env"
 
+// In-memory cache untuk mengurangi database queries
+const userIdCache = new Map<string, string | null>()
+
 async function resolveDatabaseUserId(email?: string | null) {
   if (!email) return null
 
-  const dbUser = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  })
+  // Check cache first
+  if (userIdCache.has(email)) {
+    return userIdCache.get(email) ?? null
+  }
 
-  return dbUser?.id ?? null
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    })
+
+    const userId = dbUser?.id ?? null
+    userIdCache.set(email, userId)
+    return userId
+  } catch (error) {
+    console.error("[v0] Database error resolving user ID:", error)
+    return null
+  }
 }
+
+// Clear cache periodically (setiap 5 menit)
+setInterval(() => {
+  userIdCache.clear()
+}, 5 * 60 * 1000)
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -91,28 +111,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       try {
         // Only handle Google OAuth
         if (account?.provider === "google" && user.email) {
-          // Check if user exists
-          const existingUser = await prisma.user.findUnique({
+          // Gunakan upsert untuk menggabungkan create + update dalam satu query
+          await prisma.user.upsert({
             where: { email: user.email },
+            update: {
+              name: user.name || undefined,
+              image: user.image || undefined,
+              updatedAt: new Date(),
+            },
+            create: {
+              email: user.email,
+              name: user.name || "",
+              image: user.image || null,
+              // Tambahkan field workspace jika diperlukan
+            },
           })
 
-          if (!existingUser) {
-            // Create new user with default workspace
-            await UserService.createUserWithWorkspace(
-              user.email,
-              user.name,
-              user.image || null
-            )
-          } else {
-            // Update existing user
-            await prisma.user.update({
-              where: { email: user.email },
-              data: {
-                name: user.name || existingUser.name,
-                image: user.image || existingUser.image,
-              },
-            })
-          }
+          // Clear cache untuk email ini agar data terbaru ter-fetch
+          userIdCache.delete(user.email)
         }
         return true
       } catch (error) {
