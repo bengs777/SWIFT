@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/client'
 import { Prisma } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 
 export class UserService {
   static async ensureUserExists(
@@ -24,6 +25,11 @@ export class UserService {
   static async findOrCreateUser(email: string, data: Prisma.UserCreateInput) {
     const user = await prisma.user.upsert({
       where: { email },
+      create: {
+        email,
+        name: data.name ?? null,
+        image: data.image ?? null,
+      },
       update: {
         name: data.name || undefined,
         image: data.image || undefined,
@@ -71,13 +77,15 @@ export class UserService {
   static async createUserWithWorkspace(
     email: string,
     name: string | null,
-    image: string | null
+    image: string | null,
+    passwordHash?: string
   ) {
     const user = await prisma.user.create({
       data: {
         email,
         name,
         image,
+        passwordHash,
       },
     })
 
@@ -124,6 +132,48 @@ export class UserService {
     }
 
     return this.createUserWithWorkspace(email, name, image)
+  }
+
+  static async createCredentialsUserWithWorkspace(
+    email: string,
+    name: string,
+    password: string
+  ) {
+    const normalizedEmail = email.trim().toLowerCase()
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    })
+
+    if (existingUser) {
+      throw new Error('USER_EXISTS')
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12)
+    return this.createUserWithWorkspace(
+      normalizedEmail,
+      name,
+      null,
+      passwordHash
+    )
+  }
+
+  static async validateCredentials(email: string, password: string) {
+    const normalizedEmail = email.trim().toLowerCase()
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    })
+
+    if (!user?.passwordHash) {
+      return null
+    }
+
+    const isValid = await bcrypt.compare(password, user.passwordHash)
+    if (!isValid) {
+      return null
+    }
+
+    return user
   }
 
   static async getUserById(userId: string) {

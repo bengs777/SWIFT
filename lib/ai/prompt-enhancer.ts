@@ -21,6 +21,7 @@ const MAX_ITEMS_PER_SECTION = 5
 
 export async function enhancePromptWithAgentRouter({
   prompt,
+  modelName,
 }: {
   prompt: string
   modelName: string

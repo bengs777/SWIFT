@@ -38,13 +38,13 @@ export class AIClient {
   private fallbackModels: string[]
 
   constructor() {
-    this.apiKey = env.bluesMindsApiKey
+    this.apiKey = env.agentRouterApiKey
     this.baseUrl = AI_CONFIG.baseUrl
     this.model = AI_CONFIG.model
     this.fallbackModels = this.buildModelCandidates()
     
     if (!this.apiKey) {
-      console.warn('[v0] AIBLUESMINDS_API_KEY not set. AI features may not work properly.')
+      console.warn('[v0] AGENT_ROUTER_TOKEN not set. AI features may not work properly.')
     }
   }
 
@@ -92,7 +92,12 @@ export class AIClient {
   }
 
   private buildModelCandidates(): string[] {
-    return [this.model, ...env.bluesMindsFallbackModels]
+    const fallbackPool =
+      env.agentRouterFallbackModels.length > 0
+        ? env.agentRouterFallbackModels
+        : env.agentRouterModels
+
+    return [this.model, ...fallbackPool]
       .map((model) => model.trim())
       .filter(Boolean)
       .filter((model, index, list) => list.indexOf(model) === index)

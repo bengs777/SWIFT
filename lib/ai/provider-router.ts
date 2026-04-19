@@ -11,7 +11,7 @@ type ProviderResponse = {
   providerUsed: "agentrouter" | "openai"
   modelUsed: string
   usedFallback: boolean
-  fallbackFrom?: "agentrouter"
+  fallbackFrom?: "agentrouter" | "openai"
   primaryError?: string
 }
 
@@ -25,6 +25,16 @@ class ProviderTimeoutError extends Error {
     this.name = "ProviderTimeoutError"
   }
 }
+
+const FILE_OUTPUT_SYSTEM_PROMPT = [
+  "You are a production-ready full-stack code generator for Next.js App Router projects.",
+  "Return ONLY a valid JSON object (no markdown, no code fences, no extra text).",
+  'JSON schema: {"message":"short summary","files":[{"path":"app/page.tsx","language":"tsx","content":"full file content"}]}',
+  "Each file must include: path, language, content.",
+  "Allowed language values: tsx, ts, css, json, html, prisma, md, env.",
+  "Prefer generating complete multi-file output for real implementation requests.",
+  "Do not truncate file content.",
+].join(" ")
 
 export class ProviderRouter {
   static async generate({ provider, modelName, prompt }: ProviderRequest): Promise<ProviderResponse> {
@@ -48,12 +58,21 @@ export class ProviderRouter {
     }
 
     if (provider === "openai") {
-      const openAi = await this.callOpenAI(modelName, prompt)
-      return {
-        message: openAi.message,
-        providerUsed: "openai",
-        modelUsed: modelName,
-        usedFallback: false,
+      try {
+        const openAi = await this.callOpenAI(modelName, prompt)
+        return {
+          message: openAi.message,
+          providerUsed: "openai",
+          modelUsed: modelName,
+          usedFallback: false,
+        }
+      } catch (error) {
+        const primaryError = error instanceof Error ? error : new Error(String(error))
+        const fallback = await this.tryOpenAiModelFallback(modelName, prompt, primaryError)
+        if (fallback) {
+          return fallback
+        }
+        throw primaryError
       }
     }
 
@@ -79,16 +98,7 @@ export class ProviderRouter {
             },
             body: JSON.stringify({
               model: modelName,
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a production-ready AI Gateway assistant. Answer clearly and helpfully.",
-                },
-                {
-                  role: "user",
-                  content: prompt,
-                },
-              ],
+              messages: this.buildMessages(prompt),
             }),
           },
           "AgentRouter",
@@ -138,40 +148,50 @@ export class ProviderRouter {
       throw new Error("OPENAI_API_KEY is not configured")
     }
 
-    const response = await this.fetchWithTimeout(
-      `${env.openAiApiUrl}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.openAiApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [
-            {
-              role: "system",
-              content: "You are a production-ready AI Gateway assistant. Answer clearly and helpfully.",
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-        }),
-      },
-      "OpenAI",
-      env.aiTimeoutMs
-    )
+    let lastError: Error | null = null
 
-    if (!response.ok) {
-      throw new Error(await this.extractError(response, "OpenAI"))
+    for (let attempt = 0; attempt < env.aiMaxRetries; attempt += 1) {
+      try {
+        const response = await this.fetchWithTimeout(
+          `${env.openAiApiUrl}/chat/completions`,
+          {
+            method: "POST",
+            headers: this.buildOpenAiHeaders(),
+            body: JSON.stringify({
+              model: modelName,
+              messages: this.buildMessages(prompt),
+            }),
+          },
+          "OpenAI",
+          env.aiTimeoutMs
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          return {
+            message: data.choices?.[0]?.message?.content || "No response returned by OpenAI.",
+          }
+        }
+
+        const error = new Error(await this.extractError(response, "OpenAI"))
+        lastError = error
+
+        const shouldRetry = response.status === 429 || response.status >= 500
+        if (!shouldRetry || attempt === env.aiMaxRetries - 1) {
+          break
+        }
+
+        await this.sleep(800 * (attempt + 1))
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        if (attempt < env.aiMaxRetries - 1) {
+          await this.sleep(800 * (attempt + 1))
+          continue
+        }
+      }
     }
 
-    const data = await response.json()
-    return {
-      message: data.choices?.[0]?.message?.content || "No response returned by OpenAI.",
-    }
+    throw lastError || new Error("OpenAI request failed.")
   }
 
   private static async tryOpenAiFallback(prompt: string, primaryError: Error): Promise<ProviderResponse | null> {
@@ -221,6 +241,89 @@ export class ProviderRouter {
     return true
   }
 
+  private static async tryOpenAiModelFallback(
+    primaryModel: string,
+    prompt: string,
+    primaryError: Error
+  ): Promise<ProviderResponse | null> {
+    if (!this.shouldTryOpenAiModelFallback(primaryError)) {
+      return null
+    }
+
+    const candidates = this.getOpenAiFallbackCandidates(primaryModel)
+    if (candidates.length === 0) {
+      return null
+    }
+
+    for (const model of candidates) {
+      try {
+        const fallback = await this.callOpenAI(model, prompt)
+        return {
+          message: fallback.message,
+          providerUsed: "openai",
+          modelUsed: model,
+          usedFallback: true,
+          fallbackFrom: "openai",
+          primaryError: primaryError.message,
+        }
+      } catch {
+        // Continue to next candidate model.
+      }
+    }
+
+    return null
+  }
+
+  private static shouldTryOpenAiModelFallback(error: Error) {
+    if (error instanceof ProviderTimeoutError) {
+      return true
+    }
+
+    const status = this.extractStatusCode(error.message)
+    if (typeof status === "number") {
+      return status === 400 || status === 403 || status === 404 || status === 408 || status === 409 || status === 429 || status >= 500
+    }
+
+    const normalized = error.message.toLowerCase()
+    return (
+      normalized.includes("rate-limit") ||
+      normalized.includes("rate-limited") ||
+      normalized.includes("no endpoints found") ||
+      normalized.includes("model not found") ||
+      normalized.includes("unknown model")
+    )
+  }
+
+  private static getOpenAiFallbackCandidates(primaryModel: string) {
+    const candidates: string[] = []
+
+    const pushUnique = (value: string) => {
+      const normalized = value.trim()
+      if (!normalized) {
+        return
+      }
+
+      if (normalized === primaryModel.trim()) {
+        return
+      }
+
+      if (!candidates.includes(normalized)) {
+        candidates.push(normalized)
+      }
+    }
+
+    if (env.openAiApiUrl.includes("openrouter.ai")) {
+      pushUnique("openrouter/auto")
+    }
+
+    pushUnique(env.openAiFallbackModel)
+    for (const model of env.openAiModels) {
+      pushUnique(model)
+    }
+
+    return candidates
+  }
+
   private static extractStatusCode(message: string): number | undefined {
     const match = message.match(/api error \((\d{3})\)/i)
     if (!match) {
@@ -236,10 +339,43 @@ export class ProviderRouter {
 
     try {
       const parsed = JSON.parse(text)
-      return `${provider} API error (${response.status}): ${parsed.error?.message || parsed.message || text}`
+      const baseMessage = parsed.error?.message || parsed.message || text
+      const metadataRaw =
+        typeof parsed.error?.metadata?.raw === "string"
+          ? parsed.error.metadata.raw
+          : ""
+      const detail = metadataRaw ? ` ${metadataRaw}` : ""
+      return `${provider} API error (${response.status}): ${baseMessage}${detail}`.trim()
     } catch {
       return `${provider} API error (${response.status}): ${text}`
     }
+  }
+
+  private static buildOpenAiHeaders() {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${env.openAiApiKey}`,
+      "Content-Type": "application/json",
+    }
+
+    if (env.openAiApiUrl.includes("openrouter.ai")) {
+      headers["HTTP-Referer"] = env.nextAuthUrl || "http://localhost:3000"
+      headers["X-Title"] = "Swift AI Web Builder"
+    }
+
+    return headers
+  }
+
+  private static buildMessages(prompt: string) {
+    return [
+      {
+        role: "system",
+        content: FILE_OUTPUT_SYSTEM_PROMPT,
+      },
+      {
+        role: "user",
+        content: prompt,
+      },
+    ]
   }
 
   private static async fetchWithTimeout(

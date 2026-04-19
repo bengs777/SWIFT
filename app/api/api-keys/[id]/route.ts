@@ -4,9 +4,13 @@ import { prisma } from '@/lib/db/client'
 import { WorkspaceService } from '@/lib/services/workspace.service'
 import { ApiKeyService } from '@/lib/services/api-key.service'
 
+type RouteContext = {
+  params: Promise<{ id: string }>
+}
+
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteContext
 ) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -14,7 +18,7 @@ export async function DELETE(
   }
 
   try {
-    const apiKeyId = params.id
+    const { id: apiKeyId } = await params
 
     // Get the API key to find workspace
     const apiKey = await prisma.apiKey.findUnique({
@@ -51,7 +55,7 @@ export async function DELETE(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteContext
 ) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -59,7 +63,7 @@ export async function POST(
   }
 
   try {
-    const apiKeyId = params.id
+    const { id: apiKeyId } = await params
     const { action } = await request.json()
 
     if (action === 'rotate') {

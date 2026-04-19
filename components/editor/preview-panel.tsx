@@ -64,6 +64,10 @@ export function PreviewPanel({
     }
   }, [activeFile, files.length])
 
+  useEffect(() => {
+    setPreviewError(null)
+  }, [files, currentVersion])
+
   const handleCopy = () => {
     if (files[activeFile]) {
       navigator.clipboard.writeText(files[activeFile].content)
@@ -159,7 +163,7 @@ export function PreviewPanel({
   }
 
   return (
-    <div className="flex h-full flex-col bg-muted/30">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-muted/30">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border bg-background px-4 py-2">
         <div className="flex items-center gap-4">
@@ -277,7 +281,7 @@ export function PreviewPanel({
 
       {/* Content */}
       {activeTab === "preview" ? (
-        <div className="flex flex-1 items-center justify-center overflow-hidden p-4">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4">
           <div
             className={cn(
               "h-full overflow-hidden rounded-lg border border-border bg-background shadow-lg transition-all duration-300",
@@ -297,7 +301,7 @@ export function PreviewPanel({
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {files.length > 0 ? (
             <>
               {/* File tabs */}

@@ -1,28 +1,28 @@
 const stats = [
-  { value: "20 days", label: "saved on daily builds", company: "Netflix" },
-  { value: "98%", label: "faster time to market", company: "Tripadvisor" },
-  { value: "300%", label: "increase in SEO", company: "Box" },
-  { value: "6x", label: "faster to build + deploy", company: "eBay" },
+  { value: "120+", label: "beta builders onboarded", company: "Closed beta" },
+  { value: "1,400+", label: "projects scaffolded", company: "Last 30 days" },
+  { value: "12 min", label: "median first draft time", company: "Internal telemetry" },
+  { value: "18", label: "countries represented", company: "User signups" },
 ]
 
 const testimonials = [
   {
-    quote: "Swift has completely transformed how our team prototypes. What used to take days now takes minutes.",
-    author: "Sarah Chen",
-    role: "Engineering Lead",
-    company: "TechCorp",
+    quote: "First usable draft in one sitting. We still polish manually, but the head start is massive.",
+    author: "Beta User #12",
+    role: "Indie Developer",
+    company: "Closed beta",
   },
   {
-    quote: "The AI understands exactly what I want. It's like having a senior developer who reads my mind.",
-    author: "Michael Torres",
-    role: "Product Designer",
-    company: "DesignCo",
+    quote: "The template flow helped me move from idea to prototype over a weekend.",
+    author: "Beta User #27",
+    role: "Solo Founder",
+    company: "Closed beta",
   },
   {
-    quote: "We shipped our entire marketing site in a weekend. The code quality is production-ready out of the box.",
-    author: "Emily Watson",
-    role: "CTO",
-    company: "StartupXYZ",
+    quote: "The editor plus preview loop is the fastest way I've tested prompts against real UI output.",
+    author: "Beta User #41",
+    role: "Product Engineer",
+    company: "Closed beta",
   },
 ]
 

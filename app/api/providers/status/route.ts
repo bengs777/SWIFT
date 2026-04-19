@@ -84,8 +84,8 @@ async function checkProviderStatus(provider: string, modelName: string) {
           status: "timeout" as ProviderState,
           issue: "config" as ProviderIssue,
           responseTimeMs: Date.now() - startedAt,
-          reason: "AGENTROUTER_API_KEY is missing",
-          action: "Tambahkan AGENTROUTER_API_KEY di file .env lalu restart dev server.",
+          reason: "AgentRouter API key is missing",
+          action: "Tambahkan AGENT_ROUTER_TOKEN (atau AGENTROUTER_API_KEY) di file .env lalu restart dev server.",
         }
       }
 
@@ -102,7 +102,7 @@ async function checkProviderStatus(provider: string, modelName: string) {
           status: "timeout" as ProviderState,
           issue: "config" as ProviderIssue,
           responseTimeMs: Date.now() - startedAt,
-          reason: "OPENAI_API_KEY is missing",
+          reason: "OpenAI-compatible API key is missing",
           action: "Tambahkan OPENAI_API_KEY di file .env lalu restart dev server.",
         }
       }
@@ -189,12 +189,17 @@ async function checkSingleSource({
     }
 
     if (response.status === 429) {
+      const rawText = await response.text()
+      const normalizedText = rawText.toLowerCase()
+      const isQuota = normalizedText.includes("quota") || normalizedText.includes("rate-limit")
       return {
         status: "slow" as ProviderState,
-        issue: "latency" as ProviderIssue,
+        issue: isQuota ? ("quota" as ProviderIssue) : ("latency" as ProviderIssue),
         responseTimeMs: elapsedMs,
-        reason: "Provider rate limited request",
-        action: "Tunggu sebentar atau ganti model untuk mengurangi antrean.",
+        reason: isQuota ? "Provider quota or upstream rate limit reached" : "Provider rate limited request",
+        action: isQuota
+          ? "Coba beberapa menit lagi, ganti model, atau gunakan key provider sendiri (BYOK)."
+          : "Tunggu sebentar atau ganti model untuk mengurangi antrean.",
       }
     }
 
@@ -214,6 +219,25 @@ async function checkSingleSource({
         action: isQuota
           ? "Isi ulang kuota provider lalu coba generate lagi."
           : "Periksa API key, izin model, atau whitelist akun provider.",
+      }
+    }
+
+    if (response.status === 404) {
+      const rawText = await response.text()
+      const normalizedText = rawText.toLowerCase()
+      const isModelUnavailable =
+        normalizedText.includes("no endpoints found") ||
+        normalizedText.includes("model not found") ||
+        normalizedText.includes("unknown model")
+
+      return {
+        status: "timeout" as ProviderState,
+        issue: isModelUnavailable ? ("config" as ProviderIssue) : ("unknown" as ProviderIssue),
+        responseTimeMs: elapsedMs,
+        reason: isModelUnavailable ? "Selected model is not available on provider" : "Provider returned 404",
+        action: isModelUnavailable
+          ? "Ganti model atau gunakan mode auto routing (openrouter/auto)."
+          : "Periksa endpoint provider atau coba model lain.",
       }
     }
 

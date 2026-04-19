@@ -3,9 +3,9 @@ import { env } from '@/lib/env'
 // AI Configuration for BLUESMINDS integration
 
 export const AI_CONFIG = {
-  provider: "bluesminds",
-  model: env.bluesMindsModel,
-  baseUrl: env.bluesMindsApiUrl,
+  provider: "agentrouter",
+  model: env.agentRouterDefaultModel || "glm-4.6",
+  baseUrl: env.agentRouterApiUrl,
   temperature: 0.7,
   maxTokens: 8000,
   topP: 0.95,

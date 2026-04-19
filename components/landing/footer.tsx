@@ -5,20 +5,19 @@ const navigation = {
   product: [
     { name: "Features", href: "#features" },
     { name: "Pricing", href: "/pricing" },
-    { name: "Templates", href: "/templates" },
-    { name: "Changelog", href: "/changelog" },
+    { name: "Templates", href: "/dashboard/templates" },
+    { name: "Dashboard", href: "/dashboard" },
   ],
   resources: [
     { name: "Documentation", href: "/docs" },
     { name: "API Reference", href: "/docs/api" },
-    { name: "Examples", href: "/examples" },
-    { name: "Blog", href: "/blog" },
+    { name: "Sign In", href: "/login" },
+    { name: "Create Account", href: "/signup" },
   ],
   company: [
-    { name: "About", href: "/about" },
-    { name: "Careers", href: "/careers" },
-    { name: "Contact", href: "/contact" },
-    { name: "Press", href: "/press" },
+    { name: "Security", href: "/security" },
+    { name: "Contact", href: "mailto:hello@swift.app" },
+    { name: "Status", href: "/docs#status" },
   ],
   legal: [
     { name: "Privacy", href: "/privacy" },

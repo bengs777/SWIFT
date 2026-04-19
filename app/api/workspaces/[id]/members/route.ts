@@ -3,9 +3,13 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/db/client'
 import { WorkspaceService } from '@/lib/services/workspace.service'
 
+type RouteContext = {
+  params: Promise<{ id: string }>
+}
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteContext
 ) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -13,7 +17,7 @@ export async function GET(
   }
 
   try {
-    const workspaceId = params.id
+    const { id: workspaceId } = await params
 
     // Check if user is member of workspace
     const membership = await WorkspaceService.checkMembership(
@@ -41,7 +45,7 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteContext
 ) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -49,7 +53,7 @@ export async function POST(
   }
 
   try {
-    const workspaceId = params.id
+    const { id: workspaceId } = await params
     const { email, role = 'member' } = await request.json()
 
     if (!email) {

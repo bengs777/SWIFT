@@ -293,6 +293,92 @@ export function generateSandboxHtml(
         </div>
       );
     }
+
+    function __swiftMissingComponent(name) {
+      return function MissingComponent({ children, ...props }) {
+        return (
+          <div
+            className="rounded-md border border-dashed border-border bg-secondary/50 p-2 text-xs text-muted-foreground"
+            data-swift-missing={name}
+            {...props}
+          >
+            {children ?? \`[missing component: \${name}]\`}
+          </div>
+        );
+      };
+    }
+
+    function __swiftNoopFunction() {
+      return undefined;
+    }
+
+    function __swiftNamespace(source) {
+      return new Proxy(
+        {},
+        {
+          get(_target, key) {
+            const name = String(key);
+            return __swiftResolve(name, name, source);
+          },
+        }
+      );
+    }
+
+    function __swiftResolve(importedName, localName, source) {
+      const name = localName || importedName;
+      const builtins = {
+        React,
+        useState: React.useState,
+        useEffect: React.useEffect,
+        useRef: React.useRef,
+        useCallback: React.useCallback,
+        useMemo: React.useMemo,
+        useReducer: React.useReducer,
+        useContext: React.useContext,
+        useLayoutEffect: React.useLayoutEffect,
+        useId: React.useId,
+        useTransition: React.useTransition,
+        useDeferredValue: React.useDeferredValue,
+        Button,
+        Input,
+        Textarea,
+        Card,
+        CardHeader,
+        CardTitle,
+        CardDescription,
+        CardContent,
+        CardFooter,
+        Badge,
+        Link: ({ children, href = "#", ...props }) => (
+          <a href={href} {...props}>
+            {children}
+          </a>
+        ),
+        Image: ({ alt = "", ...props }) => <img alt={alt} {...props} />,
+        useRouter: () => ({
+          push: () => {},
+          replace: () => {},
+          back: () => {},
+          prefetch: async () => {},
+        }),
+        usePathname: () => "/",
+        useSearchParams: () => new URLSearchParams(),
+      };
+
+      if (name in builtins) {
+        return builtins[name];
+      }
+
+      if (importedName in builtins) {
+        return builtins[importedName];
+      }
+
+      if (name && /^[A-Z]/.test(name)) {
+        return __swiftMissingComponent(name);
+      }
+
+      return __swiftNoopFunction;
+    }
     
     // User's Generated Component
     ${transformedCode}
@@ -300,7 +386,32 @@ export function generateSandboxHtml(
     // Render
     const rootElement = document.getElementById('root');
     const root = ReactDOM.createRoot(rootElement);
-    root.render(<App />);
+    function __swiftRenderRuntimeFallback(errorMessage) {
+      root.render(
+        <div className="min-h-screen bg-background p-6 text-foreground">
+          <div className="mx-auto max-w-3xl rounded-xl border border-border bg-card p-5">
+            <h2 className="text-lg font-semibold">Preview fallback mode</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Komponen berhasil dimuat sebagian, tapi ada error saat render.
+            </p>
+            <pre className="mt-4 overflow-x-auto rounded-md bg-secondary p-3 text-xs text-muted-foreground">
+{String(errorMessage || "Unknown preview runtime error")}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
+    window.addEventListener("error", (event) => {
+      event.preventDefault();
+      __swiftRenderRuntimeFallback(event.message || "Unhandled preview error");
+    });
+
+    try {
+      root.render(<App />);
+    } catch (error) {
+      __swiftRenderRuntimeFallback(error?.message || String(error));
+    }
   </script>
 </body>
 </html>
@@ -313,20 +424,33 @@ export function generateSandboxHtml(
 function transformReactCode(code: string, allFiles: GeneratedFile[]): string {
   let transformed = code
 
+  transformed = transformImportsToFallbacks(transformed)
+
   // Remove TypeScript types and interfaces
-  transformed = transformed.replace(/interface\s+\w+\s*\{[^}]*\}/g, "")
-  transformed = transformed.replace(/type\s+\w+\s*=\s*[^;]+;/g, "")
-  transformed = transformed.replace(/:\s*\w+(\[\])?(\s*\|\s*\w+(\[\])?)*(?=[\s,\)\=\{])/g, "")
+  transformed = transformed.replace(/(?:export\s+)?interface\s+\w+\s*\{[\s\S]*?\}\s*;?/g, "")
+  transformed = transformed.replace(/(?:export\s+)?type\s+\w+\s*=\s*\{[\s\S]*?\}\s*;?/g, "")
+  transformed = transformed.replace(/(?:export\s+)?type\s+\w+\s*=\s*[^;\n]+;?/g, "")
+  // Remove variable type annotations: const x: Type = ...
+  transformed = transformed.replace(
+    /(\b(?:const|let|var)\s+[A-Za-z_$][\w$]*)\s*:\s*[^=;\n]+(?=\s*=)/g,
+    "$1"
+  )
+  // Remove function parameter annotations: (x: Type, y: Type)
+  transformed = transformed.replace(
+    /([\(,]\s*[A-Za-z_$][\w$]*)\s*:\s*[^,\)\n]+/g,
+    "$1"
+  )
+  // Remove function return annotations: (): Type => / function x(): Type {
+  transformed = transformed.replace(/\)\s*:\s*[^=\{\n]+(?=\s*=>|\s*\{)/g, ")")
+  transformed = transformed.replace(/\s+satisfies\s+[A-Za-z_$][\w$<>\[\]\{\}\|&,\s]*/g, "")
+  transformed = transformed.replace(/\s+as\s+const\b/g, "")
+  transformed = transformed.replace(/\s+as\s+[A-Za-z_$][\w$<>\[\]\{\}\|&,\s]*/g, "")
   // Remove generic annotations from hooks like useState<string>()
   // without stripping JSX tags such as <CardTitle>.
   transformed = transformed.replace(
     /(?<=[\w\)])<([A-Z]?\w+)(\s*,\s*([A-Z]?\w+))*>\(/g,
     "("
   )
-
-  // Remove imports (we provide components inline)
-  transformed = transformed.replace(/import\s+.*?from\s+['"][^'"]+['"];?\n?/g, "")
-  transformed = transformed.replace(/import\s+['"][^'"]+['"];?\n?/g, "")
 
   // Remove "use client" directive
   transformed = transformed.replace(/['"]use client['"];?\n?/g, "")
@@ -353,6 +477,100 @@ function transformReactCode(code: string, allFiles: GeneratedFile[]): string {
   transformed = transformed.replace(/<Image\s+/g, "<img ")
 
   return transformed
+}
+
+function transformImportsToFallbacks(code: string) {
+  const transformed = code.replace(
+    /^\s*import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+    (_full, rawClause: string, rawSource: string) => {
+      const clause = String(rawClause || "").trim()
+      const source = String(rawSource || "").trim()
+      return buildImportFallbackDeclarations(clause, source)
+    }
+  )
+
+  return transformed.replace(/^\s*import\s+['"][^'"]+['"]\s*;?\s*$/gm, "")
+}
+
+function buildImportFallbackDeclarations(clause: string, source: string) {
+  const statements: string[] = []
+  const safeSource = JSON.stringify(source)
+  const sourceLower = source.toLowerCase()
+  const reactGlobals = new Set([
+    "useState",
+    "useEffect",
+    "useRef",
+    "useCallback",
+    "useMemo",
+    "Fragment",
+    "Suspense",
+  ])
+
+  const namespaceMatch = clause.match(/^\*\s+as\s+([A-Za-z_$][\w$]*)$/)
+  if (namespaceMatch?.[1]) {
+    const name = namespaceMatch[1]
+    if (sourceLower === "react" && name === "React") {
+      return ""
+    }
+    statements.push(`const ${name} = __swiftNamespace(${safeSource});`)
+    return statements.join("\n")
+  }
+
+  const namedMatch = clause.match(/^\{([\s\S]+)\}$/)
+  if (namedMatch?.[1]) {
+    for (const item of namedMatch[1].split(",")) {
+      const token = item.trim()
+      if (!token) continue
+      const aliasMatch = token.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/)
+      const imported = aliasMatch?.[1] || token
+      const local = aliasMatch?.[2] || imported
+      if (
+        sourceLower === "react" &&
+        reactGlobals.has(imported) &&
+        imported === local
+      ) {
+        continue
+      }
+      statements.push(`const ${local} = __swiftResolve(${JSON.stringify(imported)}, ${JSON.stringify(local)}, ${safeSource});`)
+    }
+    return statements.join("\n")
+  }
+
+  const mixedMatch = clause.match(/^([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]+)\}$/)
+  if (mixedMatch?.[1]) {
+    const defaultName = mixedMatch[1]
+    if (!(sourceLower === "react" && defaultName === "React")) {
+      statements.push(`const ${defaultName} = __swiftResolve("default", ${JSON.stringify(defaultName)}, ${safeSource});`)
+    }
+    for (const item of mixedMatch[2].split(",")) {
+      const token = item.trim()
+      if (!token) continue
+      const aliasMatch = token.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/)
+      const imported = aliasMatch?.[1] || token
+      const local = aliasMatch?.[2] || imported
+      if (
+        sourceLower === "react" &&
+        reactGlobals.has(imported) &&
+        imported === local
+      ) {
+        continue
+      }
+      statements.push(`const ${local} = __swiftResolve(${JSON.stringify(imported)}, ${JSON.stringify(local)}, ${safeSource});`)
+    }
+    return statements.join("\n")
+  }
+
+  const defaultMatch = clause.match(/^([A-Za-z_$][\w$]*)$/)
+  if (defaultMatch?.[1]) {
+    const name = defaultMatch[1]
+    if (sourceLower === "react" && name === "React") {
+      return ""
+    }
+    statements.push(`const ${name} = __swiftResolve("default", ${JSON.stringify(name)}, ${safeSource});`)
+    return statements.join("\n")
+  }
+
+  return `/* Unsupported import clause omitted: ${clause} from ${source} */`
 }
 
 /**

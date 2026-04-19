@@ -5,15 +5,20 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Zap, Send, Paperclip, Image as ImageIcon } from "lucide-react"
+import { Zap, Send, Paperclip, Image as ImageIcon, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/app/dashboard/project/[id]/page"
 import type { ProviderStatus } from "@/app/dashboard/project/[id]/page"
 import type { ModelOption } from "@/lib/types"
+import { getTemplate } from "@/lib/ai/prompt-templates"
+import type { PromptTemplateKey, TemplateVariant } from "@/lib/ai/prompt-templates"
 
 const MAX_PROMPT_LENGTH = 12000
+const sanitizeModelDisplayName = (value: string) =>
+  value.replace(/:free\b/gi, "").trim()
 
 interface ChatPanelProps {
+  projectId: string
   messages: Message[]
   onSendMessage: (content: string, selectedModel: string) => void
   isGenerating: boolean
@@ -24,7 +29,18 @@ interface ChatPanelProps {
   providerStatus?: ProviderStatus | null
 }
 
+type EstimateState = {
+  isLoading: boolean
+  estimatedTokens?: number
+  estimatedCost?: number
+  canAfford?: boolean
+  remainingBalance?: number
+  currentBalance?: number
+  error?: string
+}
+
 export function ChatPanel({
+  projectId,
   messages,
   onSendMessage,
   isGenerating,
@@ -35,8 +51,12 @@ export function ChatPanel({
   providerStatus,
 }: ChatPanelProps) {
   const [input, setInput] = useState("")
+  const [templateKey, setTemplateKey] = useState<PromptTemplateKey>("landing")
+  const [templateVariant, setTemplateVariant] = useState<TemplateVariant>("short")
+  const [estimate, setEstimate] = useState<EstimateState>({ isLoading: false })
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const selectedModelInfo = modelOptions.find((model) => model.key === selectedModel)
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -46,10 +66,74 @@ export function ChatPanel({
   }, [messages])
 
   const handleSubmit = () => {
-    if (!input.trim() || isGenerating) return
+    if (!input.trim() || !selectedModel || isGenerating || input.length > MAX_PROMPT_LENGTH) return
     onSendMessage(input.trim(), selectedModel)
     setInput("")
   }
+
+  const handleApplyTemplate = () => {
+    setInput(getTemplate(templateKey, templateVariant))
+  }
+
+  useEffect(() => {
+    const prompt = input.trim()
+
+    if (!prompt || prompt.length > MAX_PROMPT_LENGTH) {
+      setEstimate({ isLoading: false })
+      return
+    }
+
+    const controller = new AbortController()
+    const timeout = window.setTimeout(async () => {
+      setEstimate((prev) => ({
+        ...prev,
+        isLoading: true,
+        error: undefined,
+      }))
+
+      try {
+        const response = await fetch("/api/generate/estimate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            selectedModel,
+            projectId,
+          }),
+          signal: controller.signal,
+        })
+
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to estimate request")
+        }
+
+        setEstimate({
+          isLoading: false,
+          estimatedTokens: payload?.estimatedTokens,
+          estimatedCost: payload?.estimatedCost,
+          canAfford: payload?.canAfford,
+          remainingBalance: payload?.remainingBalance,
+          currentBalance: payload?.currentBalance,
+        })
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return
+        }
+
+        setEstimate({
+          isLoading: false,
+          error: error instanceof Error ? error.message : "Failed to estimate request",
+        })
+      }
+    }, 320)
+
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [input, selectedModel, projectId])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -59,11 +143,18 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex h-full flex-col border-r border-border bg-background">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-border bg-background">
       {/* Messages */}
-      <ScrollArea ref={scrollRef} className="flex-1 p-4">
+      <ScrollArea ref={scrollRef} className="min-h-0 flex-1 p-4">
         {messages.length === 0 ? (
-          <EmptyState />
+          <EmptyState
+            onSuggestionSelect={setInput}
+            onTemplateSelect={(key) => {
+              setTemplateKey(key)
+              setTemplateVariant("short")
+              setInput(getTemplate(key, "short"))
+            }}
+          />
         ) : (
           <div className="space-y-6">
             {messages.map((message) => (
@@ -74,9 +165,42 @@ export function ChatPanel({
       </ScrollArea>
 
       {/* Input */}
-      <div className="border-t border-border p-4">
-        <div className="space-y-3">
+      <div className="shrink-0 border-t border-border p-4">
+        <div className="max-h-[42vh] space-y-3 overflow-y-auto pr-1">
           <ProviderHealthCard status={providerStatus} />
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <Select
+              value={templateKey}
+              onValueChange={(value) => setTemplateKey(value as PromptTemplateKey)}
+              disabled={isGenerating}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Template" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="landing">Landing page</SelectItem>
+                <SelectItem value="auth">Auth flow</SelectItem>
+                <SelectItem value="dashboard">Dashboard</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={templateVariant}
+              onValueChange={(value) => setTemplateVariant(value as TemplateVariant)}
+              disabled={isGenerating}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Variant" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="short">Short</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="extended">Extended</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" className="h-9" onClick={handleApplyTemplate} disabled={isGenerating}>
+              Use Template
+            </Button>
+          </div>
           <Textarea
             ref={textareaRef}
             value={input}
@@ -86,6 +210,42 @@ export function ChatPanel({
             className="min-h-[80px] resize-none"
             disabled={isGenerating}
           />
+          {input.trim() && (
+            <div
+              className={cn(
+                "rounded-lg border px-3 py-2 text-xs",
+                estimate.error
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
+                  : estimate.canAfford === false
+                    ? "border-rose-500/40 bg-rose-500/10 text-rose-100"
+                    : "border-border bg-card/70 text-muted-foreground"
+              )}
+            >
+              {estimate.isLoading ? (
+                <p>Estimating request cost...</p>
+              ) : estimate.error ? (
+                <p>
+                  Estimation unavailable ({estimate.error}). Flat model price: Rp {(
+                    selectedModelInfo?.price || 0
+                  ).toLocaleString("id-ID")}.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>Est. tokens: {(estimate.estimatedTokens || 0).toLocaleString("id-ID")}</span>
+                  <span>Est. cost: Rp {(estimate.estimatedCost || selectedModelInfo?.price || 0).toLocaleString("id-ID")}</span>
+                  {typeof estimate.currentBalance === "number" && (
+                    <span>Balance: Rp {estimate.currentBalance.toLocaleString("id-ID")}</span>
+                  )}
+                  {typeof estimate.remainingBalance === "number" && (
+                    <span>After request: Rp {estimate.remainingBalance.toLocaleString("id-ID")}</span>
+                  )}
+                  {estimate.canAfford === false && (
+                    <span className="font-medium">Insufficient balance for this request.</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" disabled={isGenerating}>
               <Paperclip className="h-4 w-4" />
@@ -100,7 +260,7 @@ export function ChatPanel({
               <SelectContent>
                 {modelOptions.map((model) => (
                   <SelectItem key={model.key} value={model.key}>
-                    {model.label} (Rp {model.price.toLocaleString("id-ID")}/request)
+                    {sanitizeModelDisplayName(model.label)} (Rp {model.price.toLocaleString("id-ID")}/request)
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -110,7 +270,7 @@ export function ChatPanel({
               size="icon"
               className="ml-auto h-9 w-9 shrink-0"
               onClick={handleSubmit}
-              disabled={!input.trim() || isGenerating}
+              disabled={!input.trim() || !selectedModel || isGenerating}
             >
               <Send className="h-4 w-4" />
             </Button>
@@ -264,7 +424,13 @@ function formatCheckedAt(value: string) {
   })
 }
 
-function EmptyState() {
+function EmptyState({
+  onSuggestionSelect,
+  onTemplateSelect,
+}: {
+  onSuggestionSelect: (value: string) => void
+  onTemplateSelect: (key: PromptTemplateKey) => void
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center py-12 text-center">
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary">
@@ -275,17 +441,32 @@ function EmptyState() {
         Describe what you want to create and I'll generate the code for you.
       </p>
       <div className="mt-6 space-y-2">
-        <SuggestionChip>Create a login form with validation</SuggestionChip>
-        <SuggestionChip>Build a pricing page with three tiers</SuggestionChip>
-        <SuggestionChip>Make a dashboard with charts</SuggestionChip>
+        <SuggestionChip onClick={() => onSuggestionSelect("Create a login form with validation")}>Create a login form with validation</SuggestionChip>
+        <SuggestionChip onClick={() => onSuggestionSelect("Build a pricing page with three tiers")}>Build a pricing page with three tiers</SuggestionChip>
+        <SuggestionChip onClick={() => onSuggestionSelect("Make a dashboard with charts")}>Make a dashboard with charts</SuggestionChip>
+      </div>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <Button type="button" variant="secondary" size="sm" onClick={() => onTemplateSelect("landing")}>
+          Landing Template
+        </Button>
+        <Button type="button" variant="secondary" size="sm" onClick={() => onTemplateSelect("auth")}>
+          Auth Template
+        </Button>
+        <Button type="button" variant="secondary" size="sm" onClick={() => onTemplateSelect("dashboard")}>
+          Dashboard Template
+        </Button>
       </div>
     </div>
   )
 }
 
-function SuggestionChip({ children }: { children: string }) {
+function SuggestionChip({ children, onClick }: { children: string; onClick?: () => void }) {
   return (
-    <button className="block w-full rounded-lg border border-border bg-card px-4 py-2 text-left text-sm text-muted-foreground transition-colors hover:border-muted-foreground/30 hover:text-foreground">
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full rounded-lg border border-border bg-card px-4 py-2 text-left text-sm text-muted-foreground transition-colors hover:border-muted-foreground/30 hover:text-foreground"
+    >
       {children}
     </button>
   )
@@ -324,8 +505,14 @@ function MessageBubble({
             {!isUser && message.metadata?.model && (
               <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded-full border border-border px-2 py-1">
-                  Model: {message.metadata.model}
+                  Model: {sanitizeModelDisplayName(message.metadata.model)}
                 </span>
+                {message.metadata.failSafeType === "strict-fullstack" && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-medium text-amber-300">
+                    <ShieldAlert className="h-3 w-3" />
+                    strict-failsafe
+                  </span>
+                )}
                 {typeof message.metadata.cost === "number" && (
                   <span className="rounded-full border border-border px-2 py-1">
                     Cost: Rp {message.metadata.cost.toLocaleString("id-ID")}

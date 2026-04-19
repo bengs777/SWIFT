@@ -15,7 +15,7 @@ export function CTA() {
               Join thousands of developers and teams who are shipping faster with Swift.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Link href="/dashboard">
+              <Link href="/signup">
                 <Button size="lg" className="gap-2">
                   Start Building Free
                   <ArrowRight className="h-4 w-4" />

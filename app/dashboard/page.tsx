@@ -53,9 +53,9 @@ export default async function DashboardPage() {
     <div className="flex h-full flex-col overflow-auto">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">AI Gateway Dashboard</h1>
+          <h1 className="text-xl font-semibold text-foreground">Swift Builder Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Monitor your balance, requests, and gateway activity.
+            Monitor credits, usage, and project activity.
           </p>
         </div>
         <div className="flex items-center gap-3">

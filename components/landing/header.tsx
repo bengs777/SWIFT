@@ -22,7 +22,7 @@ export function Header() {
             <Link href="#demo" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
               Demo
             </Link>
-            <Link href="#pricing" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <Link href="/pricing" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
               Pricing
             </Link>
             <Link href="/docs" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
@@ -36,7 +36,7 @@ export function Header() {
               Sign In
             </Button>
           </Link>
-          <Link href="/dashboard">
+          <Link href="/signup">
             <Button size="sm">Get Started</Button>
           </Link>
         </div>

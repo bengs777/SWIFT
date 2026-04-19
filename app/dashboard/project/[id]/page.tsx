@@ -6,10 +6,29 @@ import { EditorHeader } from "@/components/editor/header"
 import { ChatPanel } from "@/components/editor/chat-panel"
 import { PreviewPanel } from "@/components/editor/preview-panel"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
+import { Button } from "@/components/ui/button"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { DEFAULT_MODEL_KEY, DEFAULT_MODEL_OPTIONS } from "@/lib/ai/models"
-import type { ModelOption } from "@/lib/types"
+import type { GeneratedFile, ModelOption } from "@/lib/types"
 
 const MAX_PROMPT_LENGTH = 12000
+const SUPPORTED_LANGUAGES: GeneratedFile["language"][] = [
+  "tsx",
+  "ts",
+  "css",
+  "json",
+  "html",
+  "prisma",
+  "md",
+  "env",
+]
+
+const normalizeLanguage = (value: unknown): GeneratedFile["language"] => {
+  const candidate = typeof value === "string" ? value : ""
+  return SUPPORTED_LANGUAGES.includes(candidate as GeneratedFile["language"])
+    ? (candidate as GeneratedFile["language"])
+    : "tsx"
+}
 
 export type Message = {
   id: string
@@ -22,6 +41,7 @@ export type Message = {
     model?: string
     cost?: number
     remainingBalance?: number
+    failSafeType?: "strict-fullstack"
   }
 }
 
@@ -34,15 +54,10 @@ export type ProviderStatus = {
   checkedAt?: string
 }
 
-export type GeneratedFile = {
-  path: string
-  content: string
-  language: string
-}
-
 export default function EditorPage() {
   const params = useParams()
   const projectId = params.id as string
+  const isMobile = useIsMobile()
 
   const [messages, setMessages] = useState<Message[]>([])
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([])
@@ -54,8 +69,25 @@ export default function EditorPage() {
   const [isDirty, setIsDirty] = useState(false)
   const [activePreviewTab, setActivePreviewTab] = useState<"preview" | "code">("preview")
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null)
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_KEY)
-  const [availableModels, setAvailableModels] = useState<ModelOption[]>(DEFAULT_MODEL_OPTIONS)
+  const [selectedModel, setSelectedModel] = useState("")
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
+  const [mobileView, setMobileView] = useState<"chat" | "preview">("chat")
+  const [layoutPreset, setLayoutPreset] = useState<"prompt" | "balanced" | "preview">("balanced")
+  const [layoutRenderKey, setLayoutRenderKey] = useState(0)
+
+  const createIdempotencyKey = useCallback((prompt: string, modelKey: string) => {
+    const base = `${projectId}:${modelKey}:${prompt.trim().toLowerCase()}`
+    const hash = Array.from(base).reduce((acc, char, index) => {
+      return (acc * 33 + char.charCodeAt(0) + index) % 2147483647
+    }, 5381)
+
+    const nonce =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10)
+
+    return `gen_${hash.toString(36)}_${Date.now().toString(36)}_${nonce}`
+  }, [projectId])
 
   useEffect(() => {
     let isMounted = true
@@ -75,7 +107,7 @@ export default function EditorPage() {
           ? data.project.files.map((file: GeneratedFile) => ({
               path: file.path,
               content: file.content,
-              language: file.language,
+              language: normalizeLanguage(file.language),
             }))
           : []
 
@@ -104,10 +136,18 @@ export default function EditorPage() {
     const loadModels = async () => {
       try {
         const response = await fetch("/api/models")
-        if (!response.ok) return
+        if (!response.ok) {
+          setAvailableModels(DEFAULT_MODEL_OPTIONS)
+          setSelectedModel(DEFAULT_MODEL_KEY)
+          return
+        }
 
         const data = await response.json()
-        if (!isMounted || !Array.isArray(data.models) || data.models.length === 0) return
+        if (!isMounted || !Array.isArray(data.models) || data.models.length === 0) {
+          setAvailableModels(DEFAULT_MODEL_OPTIONS)
+          setSelectedModel(DEFAULT_MODEL_KEY)
+          return
+        }
 
         const normalizedModels: ModelOption[] = data.models.map((model: ModelOption) => ({
           key: model.key,
@@ -128,7 +168,9 @@ export default function EditorPage() {
           setSelectedModel(normalizedModels[0].key)
         }
       } catch {
-        // Keep local defaults if the model endpoint is unavailable.
+        if (!isMounted) return
+        setAvailableModels(DEFAULT_MODEL_OPTIONS)
+        setSelectedModel(DEFAULT_MODEL_KEY)
       }
     }
 
@@ -157,7 +199,7 @@ export default function EditorPage() {
         status: "error",
         issue: "auth",
         reason: "Provider rejected authentication or model access",
-        action: "Periksa AGENT_ROUTER_TOKEN atau AGENTROUTER_API_KEY, lalu pastikan token aktif dan akun di-whitelist oleh AgentRouter.",
+        action: "Periksa API key provider aktif (OPENAI_API_KEY atau AGENT_ROUTER_TOKEN), izin model, dan endpoint API.",
         checkedAt: new Date().toISOString(),
       }
     }
@@ -165,13 +207,29 @@ export default function EditorPage() {
     if (
       normalized.includes("quota") ||
       normalized.includes("insufficient_user_quota") ||
-      normalized.includes("额度不足")
+      normalized.includes("额度不足") ||
+      normalized.includes("rate-limit") ||
+      normalized.includes("rate limited")
     ) {
       return {
         status: "error",
         issue: "quota",
-        reason: "Provider quota exhausted",
-        action: "Isi ulang kuota provider lalu coba generate lagi.",
+        reason: "Provider quota atau upstream rate limit sedang penuh",
+        action: "Coba lagi beberapa menit, ganti model, atau gunakan key provider sendiri (BYOK).",
+        checkedAt: new Date().toISOString(),
+      }
+    }
+
+    if (
+      normalized.includes("no endpoints found") ||
+      normalized.includes("model not found") ||
+      normalized.includes("unknown model")
+    ) {
+      return {
+        status: "error",
+        issue: "config",
+        reason: "Model yang dipilih sedang tidak tersedia di provider",
+        action: "Pilih model lain atau pakai openrouter/auto agar provider memilih endpoint yang tersedia.",
         checkedAt: new Date().toISOString(),
       }
     }
@@ -287,6 +345,7 @@ export default function EditorPage() {
           projectId,
           history: messages,
           selectedModel: modelKey,
+          idempotencyKey: createIdempotencyKey(trimmedContent, modelKey),
         }),
       })
 
@@ -337,6 +396,10 @@ export default function EditorPage() {
                   model: data.usage?.model,
                   cost: data.usage?.cost,
                   remainingBalance: data.usage?.remainingBalance,
+                  failSafeType:
+                    data?.failSafe?.type === "strict-fullstack"
+                      ? "strict-fullstack"
+                      : undefined,
                 },
               }
             : msg
@@ -344,8 +407,16 @@ export default function EditorPage() {
       )
 
       // Update generated files
-      if (data.files) {
-        setGeneratedFiles(data.files)
+      if (Array.isArray(data.files)) {
+        const normalizedFiles: GeneratedFile[] = data.files.map(
+          (file: { path: string; content: string; language?: string }) => ({
+            path: file.path,
+            content: file.content,
+            language: normalizeLanguage(file.language),
+          })
+        )
+
+        setGeneratedFiles(normalizedFiles)
         setCurrentVersion((v) => v + 1)
         setIsDirty(false)
         setActivePreviewTab("code")
@@ -375,7 +446,7 @@ export default function EditorPage() {
     } finally {
       setIsGenerating(false)
     }
-  }, [buildProviderStatusFromError, messages, projectId])
+  }, [buildProviderStatusFromError, createIdempotencyKey, messages, projectId])
 
   const handleUpdateFile = useCallback((index: number, content: string) => {
     setGeneratedFiles((currentFiles) =>
@@ -416,6 +487,11 @@ export default function EditorPage() {
     }
   }, [generatedFiles, messages, saveFiles])
 
+  const applyLayoutPreset = useCallback((preset: "prompt" | "balanced" | "preview") => {
+    setLayoutPreset(preset)
+    setLayoutRenderKey((current) => current + 1)
+  }, [])
+
   if (isLoadingProject) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -433,36 +509,121 @@ export default function EditorPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <EditorHeader projectId={projectId} currentVersion={currentVersion} />
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        <ResizablePanel defaultSize={40} minSize={30}>
-          <ChatPanel
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            isGenerating={isGenerating}
-            modelOptions={availableModels}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-            onViewCode={() => setActivePreviewTab("code")}
-            providerStatus={providerStatus}
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={60} minSize={40}>
-          <PreviewPanel
-            files={generatedFiles}
-            currentVersion={currentVersion}
-            onUpdateFile={handleUpdateFile}
-            onReplaceFiles={handleReplaceFiles}
-            onSaveFiles={handleSaveFiles}
-            isSaving={isSavingFiles}
-            isDirty={isDirty}
-            activeTab={activePreviewTab}
-            onTabChange={setActivePreviewTab}
-          />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      {isMobile ? (
+        <>
+          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+            <Button
+              size="sm"
+              variant={mobileView === "chat" ? "default" : "outline"}
+              onClick={() => setMobileView("chat")}
+            >
+              Prompt
+            </Button>
+            <Button
+              size="sm"
+              variant={mobileView === "preview" ? "default" : "outline"}
+              onClick={() => setMobileView("preview")}
+            >
+              Preview
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {mobileView === "chat" ? (
+              <ChatPanel
+                projectId={projectId}
+                messages={messages}
+                onSendMessage={handleSendMessage}
+                isGenerating={isGenerating}
+                modelOptions={availableModels}
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
+                onViewCode={() => {
+                  setActivePreviewTab("code")
+                  setMobileView("preview")
+                }}
+                providerStatus={providerStatus}
+              />
+            ) : (
+              <PreviewPanel
+                files={generatedFiles}
+                currentVersion={currentVersion}
+                onUpdateFile={handleUpdateFile}
+                onReplaceFiles={handleReplaceFiles}
+                onSaveFiles={handleSaveFiles}
+                isSaving={isSavingFiles}
+                isDirty={isDirty}
+                activeTab={activePreviewTab}
+                onTabChange={setActivePreviewTab}
+              />
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-end gap-2 border-b border-border px-3 py-2">
+            <Button
+              size="sm"
+              variant={layoutPreset === "prompt" ? "default" : "outline"}
+              onClick={() => applyLayoutPreset("prompt")}
+            >
+              Prompt Besar
+            </Button>
+            <Button
+              size="sm"
+              variant={layoutPreset === "balanced" ? "default" : "outline"}
+              onClick={() => applyLayoutPreset("balanced")}
+            >
+              Seimbang
+            </Button>
+            <Button
+              size="sm"
+              variant={layoutPreset === "preview" ? "default" : "outline"}
+              onClick={() => applyLayoutPreset("preview")}
+            >
+              Preview Besar
+            </Button>
+          </div>
+          <ResizablePanelGroup key={layoutRenderKey} direction="horizontal" className="min-h-0 flex-1">
+            <ResizablePanel
+              className="min-h-0"
+              defaultSize={layoutPreset === "prompt" ? 55 : layoutPreset === "preview" ? 30 : 40}
+              minSize={25}
+            >
+              <ChatPanel
+                projectId={projectId}
+                messages={messages}
+                onSendMessage={handleSendMessage}
+                isGenerating={isGenerating}
+                modelOptions={availableModels}
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
+                onViewCode={() => setActivePreviewTab("code")}
+                providerStatus={providerStatus}
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel
+              className="min-h-0"
+              defaultSize={layoutPreset === "prompt" ? 45 : layoutPreset === "preview" ? 70 : 60}
+              minSize={30}
+            >
+              <PreviewPanel
+                files={generatedFiles}
+                currentVersion={currentVersion}
+                onUpdateFile={handleUpdateFile}
+                onReplaceFiles={handleReplaceFiles}
+                onSaveFiles={handleSaveFiles}
+                isSaving={isSavingFiles}
+                isDirty={isDirty}
+                activeTab={activePreviewTab}
+                onTabChange={setActivePreviewTab}
+              />
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </>
+      )}
     </div>
   )
 }

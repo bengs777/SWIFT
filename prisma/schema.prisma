@@ -13,6 +13,7 @@ model User {
   email         String     @unique
   name          String?
   image         String?
+  passwordHash  String?
   balance       Int        @default(100000)
   emailVerified DateTime?
   createdAt     DateTime   @default(now())
@@ -148,12 +149,15 @@ model GenerationHistory {
   prompt      String
   result      String
   tokensUsed  Int      @default(0)
-  createdAt   DateTime @default(now())
+  idempotencyKey String?
+  cost           Decimal  @default(0)
+  createdAt      DateTime @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([createdAt])
+  @@index([projectId, idempotencyKey])
 }
 
 // API Keys for workspace

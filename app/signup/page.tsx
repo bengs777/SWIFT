@@ -33,8 +33,29 @@ export default function SignupPage() {
     setIsLoading(true)
 
     try {
+      const registerResponse = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          termsAccepted: agreed,
+        }),
+      })
+
+      if (!registerResponse.ok) {
+        const payload = (await registerResponse.json().catch(() => null)) as {
+          error?: string
+        } | null
+        setError(payload?.error || "Failed to create account")
+        return
+      }
+
       const result = await signIn("credentials", {
-        email,
+        email: email.trim().toLowerCase(),
         password,
         redirect: false,
       })

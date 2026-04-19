@@ -41,6 +41,8 @@ const normalizeProvider = (value: string) => {
 }
 
 const normalizeUrl = (url: string) => url.replace(/\/+$/, "")
+const OPENAI_DEFAULT_MODEL = getEnv("OPENAI_DEFAULT_MODEL", "OPENAI_FALLBACK_MODEL") || "gpt-4o-mini"
+const OPENAI_FALLBACK_MODEL = getEnv("OPENAI_FALLBACK_MODEL") || OPENAI_DEFAULT_MODEL
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -66,7 +68,9 @@ export const env = {
   agentRouterFallbackModels: getEnvList("AI_FALLBACK_MODELS", "AGENT_ROUTER_FALLBACK_MODELS", "AGENTROUTER_FALLBACK_MODELS"),
   openAiApiKey: getEnv("OPENAI_API_KEY"),
   openAiApiUrl: getEnv("OPENAI_API_URL") || "https://api.openai.com/v1",
-  openAiFallbackModel: getEnv("OPENAI_FALLBACK_MODEL", "OPENAI_DEFAULT_MODEL") || "gpt-4o-mini",
+  openAiDefaultModel: OPENAI_DEFAULT_MODEL,
+  openAiModels: getEnvList("OPENAI_MODELS", "OPENAI_MODEL_LIST"),
+  openAiFallbackModel: OPENAI_FALLBACK_MODEL,
   supabaseServiceRoleKey: getEnv("SUPABASE_SERVICE_ROLE_KEY"),
   supabaseAnonKey: getEnv("SUPABASE_ANON_KEY"),
   supabaseUrl: getEnv("NEXT_PUBLIC_SUPABASE_URL"),
@@ -74,6 +78,29 @@ export const env = {
   vercelAccessToken: getEnv("VERCEL_ACCESS_TOKEN"),
   tursoAuthToken: getEnv("TURSO_AUTH_TOKEN"),
   tursoDatabaseUrl: getEnv("TURSO_DATABASE_URL"),
+}
+
+if (env.nodeEnv === "production") {
+  const missing: string[] = []
+
+  if (!env.databaseUrl) missing.push("DATABASE_URL")
+  if (!env.nextAuthSecret) missing.push("NEXTAUTH_SECRET")
+  if (!env.googleClientId) missing.push("GOOGLE_CLIENT_ID")
+  if (!env.googleClientSecret) missing.push("GOOGLE_CLIENT_SECRET")
+
+  if (env.aiPrimaryProvider === "agentrouter" && !env.agentRouterApiKey) {
+    missing.push("AGENT_ROUTER_TOKEN")
+  }
+
+  if (env.aiPrimaryProvider === "openai" && !env.openAiApiKey) {
+    missing.push("OPENAI_API_KEY")
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(", ")}`
+    )
+  }
 }
 
 export { getEnv, getEnvList }

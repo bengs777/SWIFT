@@ -4,11 +4,13 @@ import { ModelConfigService } from "@/lib/services/model-config.service"
 import { env } from "@/lib/env"
 
 const toLabel = (value: string) => {
+  const cleanedValue = value.replace(/:free\b/gi, "").trim()
+
   if (value.includes("/")) {
-    return value
+    return cleanedValue
   }
 
-  return value
+  return cleanedValue
     .split(/[-_]/g)
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(" ")
