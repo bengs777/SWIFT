@@ -50,27 +50,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        if (
+          !credentials?.email ||
+          !credentials?.password ||
+          typeof credentials.email !== "string" ||
+          typeof credentials.password !== "string"
+        ) {
           return null
         }
 
+        const email = credentials.email
+
         const user = await UserService.createUserWithWorkspaceIfMissing(
-          credentials.email,
-          credentials.email.split("@")[0],
+          email,
+          email.split("@")[0],
           null
         )
 
         return {
           id: user.id,
           email: user.email,
-          name: user.name || credentials.email.split("@")[0],
+          name: user.name || email.split("@")[0],
         }
       },
     }),
   ],
   pages: {
     signIn: "/login",
-    signUp: "/signup",
     error: "/auth/error",
   },
   callbacks: {
