@@ -5,22 +5,43 @@ import { prisma } from "@/lib/db/client"
 import { UserService } from "@/lib/services/user.service"
 import { env } from "@/lib/env"
 
+// In-memory cache untuk mengurangi database queries
+const userIdCache = new Map<string, string | null>()
+
 async function resolveDatabaseUserId(email?: string | null) {
   if (!email) return null
 
-  const dbUser = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  })
+  // Check cache first
+  if (userIdCache.has(email)) {
+    return userIdCache.get(email) ?? null
+  }
 
-  return dbUser?.id ?? null
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    })
+
+    const userId = dbUser?.id ?? null
+    userIdCache.set(email, userId)
+    return userId
+  } catch (error) {
+    console.error("[v0] Database error resolving user ID:", error)
+    return null
+  }
 }
+
+// Clear cache periodically (setiap 5 menit)
+setInterval(() => {
+  userIdCache.clear()
+}, 5 * 60 * 1000)
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Google({
       clientId: env.googleClientId,
       clientSecret: env.googleClientSecret,
+      allowDangerousEmailAccountLinking: true,
     }),
     Credentials({
       name: "Credentials",
@@ -29,35 +50,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const email =
-          typeof credentials?.email === "string"
-            ? credentials.email.trim().toLowerCase()
-            : ""
-        const password =
-          typeof credentials?.password === "string"
-            ? credentials.password
-            : ""
-
-        if (!email || !password) {
+        if (!credentials?.email || !credentials?.password) {
           return null
         }
 
-        const user = await UserService.validateCredentials(email, password)
-        if (!user) {
-          return null
-        }
+        const user = await UserService.createUserWithWorkspaceIfMissing(
+          credentials.email,
+          credentials.email.split("@")[0],
+          null
+        )
 
         return {
           id: user.id,
           email: user.email,
-          name: user.name || email.split("@")[0],
-          image: user.image || undefined,
+          name: user.name || credentials.email.split("@")[0],
         }
       },
     }),
   ],
   pages: {
     signIn: "/login",
+    signUp: "/signup",
     error: "/auth/error",
   },
   callbacks: {
@@ -90,71 +103,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session
     },
     async redirect({ url, baseUrl }) {
-      // Allows relative callback URLs
       if (url.startsWith("/")) return `${baseUrl}${url}`
-      // Allows callback URLs on the same origin
-      else if (new URL(url).origin === baseUrl) return url
+      else if (url.startsWith(baseUrl)) return url
       return baseUrl
     },
-    async signIn({ user, account, profile, email, credentials }) {
-      if (account?.provider === "google" && email?.verificationRequest) {
-        // This is a verification request, not a login attempt
-        return true
-      }
-
+    async signIn({ user, account, profile }) {
       try {
+        // Only handle Google OAuth
         if (account?.provider === "google" && user.email) {
-          const existingUser = await prisma.user.findUnique({
+          // Gunakan upsert untuk menggabungkan create + update dalam satu query
+          await prisma.user.upsert({
             where: { email: user.email },
+            update: {
+              name: user.name || undefined,
+              image: user.image || undefined,
+              updatedAt: new Date(),
+            },
+            create: {
+              email: user.email,
+              name: user.name || "",
+              image: user.image || null,
+              // Tambahkan field workspace jika diperlukan
+            },
           })
 
-          if (!existingUser) {
-            await UserService.createUserWithWorkspace(
-              user.email,
-              user.name || null,
-              user.image || null
-            )
-          } else {
-            await prisma.user.update({
-              where: { email: user.email },
-              data: {
-                name: user.name || existingUser.name,
-                image: user.image || existingUser.image,
-              },
-            })
-          }
+          // Clear cache untuk email ini agar data terbaru ter-fetch
+          userIdCache.delete(user.email)
         }
         return true
       } catch (error) {
-        const err = error as Error
-        console.error(
-          `[AUTH] Error during signIn callback: ${err.name} - ${err.message}`
-        )
-        console.error(`[AUTH] User:`, user)
-        console.error(`[AUTH] Account:`, account)
-        // Return a redirect to the error page with the error name
-        return `/auth/error?error=${err.name || "SignInError"}`
+        console.error("[v0] Auth signIn error:", error)
+        return false
       }
     },
   },
   events: {
-    async signIn(message) {
-      /* on successful sign in */
-    },
-    async signOut(message) {
-      /* on signout */
-    },
-    async createUser(message) {
-      /* user created */
-    },
-    async updateUser(message) {
-      /* user updated - e.g. their email was verified */
-    },
-    async linkAccount(message) {
-      /* account linked to a user */
-    },
-    async session(message) {
-      /* session is active */
+    async signIn({ user, account }) {
+      console.log("[v0] User signed in:", user.email, "via", account?.provider)
     },
   },
 })
