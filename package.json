@@ -10,6 +10,7 @@
     "build": "node scripts/vercel-build.js",
     "start": "next start",
     "lint": "eslint .",
+    "postbuild": "prisma migrate deploy"
     "postinstall": "prisma generate"
   },
   "dependencies": {
