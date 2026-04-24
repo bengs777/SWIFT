@@ -6,6 +6,16 @@ import bcrypt from 'bcryptjs'
 const FREE_CREDITS_AMOUNT = 5000
 const DEVELOPER_TREASURY_CREDITS = 1_000_000
 
+function isMissingUserTableError(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    const message = `${error.message} ${error.meta ? JSON.stringify(error.meta) : ""}`
+    return /no such table/i.test(message) && /main\.User/i.test(message)
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  return /no such table/i.test(message) && /main\.User/i.test(message)
+}
+
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const getDeveloperTreasuryEmail = () => normalizeEmail(env.devOwnerEmail)
 const isDeveloperTreasuryEmail = (email?: string | null) => {
@@ -189,38 +199,16 @@ export class UserService {
   }
 
   static async grantMonthlyFreeCreditsIfNeeded(email: string) {
-    const normalizedEmail = email.trim().toLowerCase()
-    const currentMonthStart = getCurrentMonthStartUtc()
+    try {
+      const normalizedEmail = email.trim().toLowerCase()
+      const currentMonthStart = getCurrentMonthStartUtc()
 
-    if (isDeveloperTreasuryEmail(normalizedEmail)) {
-      return
-    }
+      if (isDeveloperTreasuryEmail(normalizedEmail)) {
+        return
+      }
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: {
-        id: true,
-        balance: true,
-        welcomeBonusGrantedAt: true,
-        isDeveloperAccount: true,
-      },
-    })
-
-    if (!user) {
-      return
-    }
-
-    if (user.isDeveloperAccount) {
-      return
-    }
-
-    if (user.welcomeBonusGrantedAt && user.welcomeBonusGrantedAt >= currentMonthStart) {
-      return
-    }
-
-    await prisma.$transaction(async (tx) => {
-      const latestUser = await tx.user.findUnique({
-        where: { id: user.id },
+      const user = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
         select: {
           id: true,
           balance: true,
@@ -229,51 +217,85 @@ export class UserService {
         },
       })
 
-      if (!latestUser) {
+      if (!user) {
         return
       }
 
-      if (latestUser.isDeveloperAccount) {
+      if (user.isDeveloperAccount) {
         return
       }
 
-      if (latestUser.welcomeBonusGrantedAt && latestUser.welcomeBonusGrantedAt >= currentMonthStart) {
+      if (user.welcomeBonusGrantedAt && user.welcomeBonusGrantedAt >= currentMonthStart) {
         return
       }
 
-      const balanceBefore = latestUser.balance
-      const balanceAfter = balanceBefore + FREE_CREDITS_AMOUNT
-      const grantedAt = new Date()
-
-      await tx.user.update({
-        where: { id: latestUser.id },
-        data: {
-          balance: {
-            increment: FREE_CREDITS_AMOUNT,
+      await prisma.$transaction(async (tx) => {
+        const latestUser = await tx.user.findUnique({
+          where: { id: user.id },
+          select: {
+            id: true,
+            balance: true,
+            welcomeBonusGrantedAt: true,
+            isDeveloperAccount: true,
           },
-          welcomeBonusGrantedAt: grantedAt,
-        },
-      })
+        })
 
-      await tx.billingTransaction.create({
-        data: {
-          userId: latestUser.id,
-          kind: "free_credits",
-          direction: "credit",
-          amount: FREE_CREDITS_AMOUNT,
-          balanceBefore,
-          balanceAfter,
-          reference: `free-credits:${currentMonthStart.toISOString().slice(0, 7)}:${latestUser.id}`,
-          provider: "internal",
-          description: "Monthly free credits for the Free plan",
-          metadata: JSON.stringify({
-            source: "monthly_free_plan",
+        if (!latestUser) {
+          return
+        }
+
+        if (latestUser.isDeveloperAccount) {
+          return
+        }
+
+        if (latestUser.welcomeBonusGrantedAt && latestUser.welcomeBonusGrantedAt >= currentMonthStart) {
+          return
+        }
+
+        const balanceBefore = latestUser.balance
+        const balanceAfter = balanceBefore + FREE_CREDITS_AMOUNT
+        const grantedAt = new Date()
+
+        await tx.user.update({
+          where: { id: latestUser.id },
+          data: {
+            balance: {
+              increment: FREE_CREDITS_AMOUNT,
+            },
+            welcomeBonusGrantedAt: grantedAt,
+          },
+        })
+
+        await tx.billingTransaction.create({
+          data: {
+            userId: latestUser.id,
+            kind: "free_credits",
+            direction: "credit",
             amount: FREE_CREDITS_AMOUNT,
-            period: currentMonthStart.toISOString(),
-          }),
-        },
+            balanceBefore,
+            balanceAfter,
+            reference: `free-credits:${currentMonthStart.toISOString().slice(0, 7)}:${latestUser.id}`,
+            provider: "internal",
+            description: "Monthly free credits for the Free plan",
+            metadata: JSON.stringify({
+              source: "monthly_free_plan",
+              amount: FREE_CREDITS_AMOUNT,
+              period: currentMonthStart.toISOString(),
+            }),
+          },
+        })
       })
-    })
+    } catch (error) {
+      if (isMissingUserTableError(error)) {
+        if (env.nodeEnv !== "production") {
+          console.warn("[user] User table is not ready yet; skipping monthly free credits sync.")
+        }
+
+        return
+      }
+
+      throw error
+    }
   }
 
   static async createUserWithWorkspaceIfMissing(

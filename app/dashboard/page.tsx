@@ -2,6 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
 import type { LucideIcon } from "lucide-react"
+import { Prisma } from "@prisma/client"
 import {
   Activity,
   ArrowUpRight,
@@ -36,6 +37,16 @@ type DashboardUsageLog = {
 type DashboardWorkspaceOption = {
   id: string
   name: string
+}
+
+function isMissingUserTableError(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    const message = `${error.message} ${error.meta ? JSON.stringify(error.meta) : ""}`
+    return /no such table/i.test(message) && /main\.User/i.test(message)
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  return /no such table/i.test(message) && /main\.User/i.test(message)
 }
 
 export default async function DashboardPage() {
@@ -112,7 +123,10 @@ export default async function DashboardPage() {
     }
   } catch (error) {
     hasDataWarning = true
-    console.error("[dashboard] Failed to load dashboard data:", error)
+
+    if (!isMissingUserTableError(error)) {
+      console.error("[dashboard] Failed to load dashboard data:", error)
+    }
   }
 
   const totalSpent = usageLogs

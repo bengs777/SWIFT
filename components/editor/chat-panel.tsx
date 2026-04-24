@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
-import { Zap, Send, Paperclip, Image as ImageIcon, ShieldAlert, ChevronDown } from "lucide-react"
+import { Zap, Send, Paperclip, Image as ImageIcon, ShieldAlert, ChevronDown, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/app/dashboard/project/[id]/page"
 import type { ProviderStatus } from "@/app/dashboard/project/[id]/page"
@@ -20,6 +20,19 @@ const MAX_ATTACHMENTS = 5
 const MAX_FILE_SIZE_BYTES = 3 * 1024 * 1024
 const MAX_TEXT_FILE_CHARS = 18000
 const MAX_IMAGE_DATA_URL_CHARS = 18000
+
+type UploadedProjectAttachment = {
+  id: string
+  name: string
+  originalName: string
+  mimeType: string
+  size: number
+  kind: PromptAttachment["kind"]
+  storageBucket: string
+  storagePath: string
+  uploadedAt: string
+  uploadedByUserId: string
+}
 const sanitizeModelDisplayName = (value: string) =>
   value.replace(/:free\b/gi, "").trim()
 
@@ -421,6 +434,7 @@ export function ChatPanel({
       return {
         id,
         name,
+        originalName: name,
         mimeType,
         size: file.size,
         kind: "image",
@@ -433,11 +447,40 @@ export function ChatPanel({
     return {
       id,
       name,
+      originalName: name,
       mimeType,
       size: file.size,
       kind: "text",
       content: textContent.slice(0, MAX_TEXT_FILE_CHARS),
     }
+  }
+
+  const uploadAttachments = async (files: File[]) => {
+    const formData = new FormData()
+
+    for (const file of files) {
+      formData.append("files", file)
+    }
+
+    const response = await fetch(`/api/projects/${projectId}/attachments`, {
+      method: "POST",
+      body: formData,
+    })
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string
+      attachments?: UploadedProjectAttachment[]
+    }
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Gagal mengunggah file ke Supabase.")
+    }
+
+    if (!Array.isArray(payload.attachments)) {
+      throw new Error("Unexpected upload response from server.")
+    }
+
+    return payload.attachments
   }
 
   const handleChooseFiles = () => {
@@ -467,8 +510,32 @@ export function ChatPanel({
     try {
       setIsReadingFiles(true)
       setAttachmentError(null)
-      const parsed = await Promise.all(filesToRead.map((file) => readAttachment(file)))
-      setAttachments((current) => [...current, ...parsed])
+      const [parsed, uploaded] = await Promise.all([
+        Promise.all(filesToRead.map((file) => readAttachment(file))),
+        uploadAttachments(filesToRead),
+      ])
+
+      if (uploaded.length !== parsed.length) {
+        throw new Error("Upload response does not match selected files.")
+      }
+
+      const hydratedAttachments = parsed.map((attachment, index) => {
+        const uploadedAttachment = uploaded[index]
+
+        return {
+          ...attachment,
+          id: uploadedAttachment.id,
+          name: uploadedAttachment.originalName || attachment.name,
+          originalName: uploadedAttachment.originalName || attachment.originalName || attachment.name,
+          assetId: uploadedAttachment.id,
+          storageBucket: uploadedAttachment.storageBucket,
+          storagePath: uploadedAttachment.storagePath,
+          uploadedAt: uploadedAttachment.uploadedAt,
+          uploadedByUserId: uploadedAttachment.uploadedByUserId,
+        }
+      })
+
+      setAttachments((current) => [...current, ...hydratedAttachments])
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : "Gagal memproses lampiran.")
     } finally {
@@ -821,7 +888,35 @@ export function ChatPanel({
               )}
             </CollapsibleContent>
           </Collapsible>
+          {attachmentError && (
+            <p className="text-xs text-destructive">{attachmentError}</p>
+          )}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((attachment) => (
+                <button
+                  key={attachment.id}
+                  type="button"
+                  onClick={() => removeAttachment(attachment.id)}
+                  className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:text-foreground"
+                  title={`Remove ${attachment.originalName || attachment.name}`}
+                >
+                  <span className="max-w-[180px] truncate">
+                    {attachment.originalName || attachment.name}
+                  </span>
+                  <X className="h-3 w-3" />
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              onChange={handleFileChange}
+            />
             <Button
               variant="ghost"
               size="icon"

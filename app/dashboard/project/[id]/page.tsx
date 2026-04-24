@@ -147,7 +147,7 @@ export default function EditorPage() {
 
   const createIdempotencyKey = useCallback((prompt: string, modelKey: string, attachments: PromptAttachment[], previewContext?: PreviewContext | null) => {
     const attachmentFingerprint = attachments
-      .map((attachment) => `${attachment.name}:${attachment.kind}:${attachment.size}:${attachment.content.slice(0, 48)}`)
+      .map((attachment) => `${attachment.storagePath || attachment.originalName || attachment.name}:${attachment.kind}:${attachment.size}:${attachment.content.slice(0, 48)}`)
       .join("|")
     const previewFingerprint = previewContext
       ? [
@@ -453,7 +453,7 @@ export default function EditorPage() {
       timestamp: new Date(),
       metadata: {
         model: modelKey,
-        attachments: attachments.map((attachment) => attachment.name),
+        attachments: attachments.map((attachment) => attachment.originalName || attachment.name),
       },
     }
 

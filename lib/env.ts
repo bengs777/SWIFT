@@ -58,6 +58,13 @@ const OPENAI_DEFAULT_MODEL = getEnv("OPENAI_DEFAULT_MODEL", "OPENAI_FALLBACK_MOD
 const OPENAI_FALLBACK_MODEL = getEnv("OPENAI_FALLBACK_MODEL") || OPENAI_DEFAULT_MODEL
 const DEV_OWNER_EMAIL = getEnv("DEV_OWNER_EMAIL") || "ibnualmugni1933@gmail.com"
 const tursoDatabaseUrl = getEnv("TURSO_DATABASE_URL")
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL")
+const supabasePublicAnonKey = getEnv(
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+)
+const supabaseServiceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY")
+const supabaseStorageBucket = getEnv("SUPABASE_STORAGE_BUCKET")
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -87,10 +94,12 @@ export const env = {
   openAiModels: getEnvList("OPENAI_MODELS", "OPENAI_MODEL_LIST"),
   openAiFallbackModel: OPENAI_FALLBACK_MODEL,
   devOwnerEmail: DEV_OWNER_EMAIL,
-  supabaseServiceRoleKey: getEnv("SUPABASE_SERVICE_ROLE_KEY"),
+  supabaseServiceRoleKey,
+  supabasePublicAnonKey,
   supabaseAnonKey: getEnv("SUPABASE_ANON_KEY"),
-  supabaseUrl: getEnv("NEXT_PUBLIC_SUPABASE_URL"),
-  supabaseBucket: getEnv("SUPABASE_STORAGE_BUCKET"),
+  supabaseUrl,
+  supabaseStorageBucket,
+  supabaseBucket: supabaseStorageBucket,
   appUrl: normalizeAppUrl(getEnv("NEXT_PUBLIC_APP_URL", "APP_URL", "NEXTAUTH_URL", "VERCEL_URL") || "http://localhost:3000"),
   pakasirSlug: getEnv("PAKASIR_SLUG", "PAKASIR_MERCHANT_ID"),
   pakasirApiKey: getEnv("PAKASIR_API_KEY"),
@@ -115,6 +124,12 @@ if (env.nodeEnv === "production") {
   if (!env.nextAuthSecret) missing.push("NEXTAUTH_SECRET")
   if (!env.googleClientId) missing.push("GOOGLE_CLIENT_ID")
   if (!env.googleClientSecret) missing.push("GOOGLE_CLIENT_SECRET")
+  if (!env.supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL")
+  if (!env.supabasePublicAnonKey) {
+    missing.push("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  }
+  if (!env.supabaseServiceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY")
+  if (!env.supabaseStorageBucket) missing.push("SUPABASE_STORAGE_BUCKET")
 
   if (env.aiPrimaryProvider === "agentrouter" && !env.agentRouterApiKey) {
     missing.push("AGENT_ROUTER_TOKEN")

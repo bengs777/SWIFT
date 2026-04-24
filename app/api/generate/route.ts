@@ -61,11 +61,17 @@ const GenerateSchema = z.object({
     z.object({
       id: z.string().min(1).max(100),
       name: z.string().min(1).max(180),
+      originalName: z.string().max(180).optional(),
       mimeType: z.string().max(120).optional().default("application/octet-stream"),
       size: z.number().int().nonnegative().max(MAX_ATTACHMENT_SIZE_BYTES),
       kind: z.enum(["image", "text", "binary"]),
       content: z.string().min(1),
-    })
+      assetId: z.string().max(100).optional(),
+      storageBucket: z.string().max(120).optional(),
+      storagePath: z.string().max(500).optional(),
+      uploadedAt: z.string().optional(),
+      uploadedByUserId: z.string().max(100).optional(),
+    }).passthrough()
   ).max(MAX_ATTACHMENTS).optional().default([]),
 })
 

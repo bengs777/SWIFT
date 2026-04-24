@@ -1,5 +1,6 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
+import { Prisma } from "@prisma/client"
 import type { Session } from "next-auth"
 import type { JWT } from "next-auth/jwt"
 import { prisma } from "@/lib/db/client"
@@ -17,6 +18,16 @@ type AuthSession = Session & {
   user: NonNullable<Session["user"]> & {
     id?: string | null
   }
+}
+
+function isMissingUserTableError(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    const message = `${error.message} ${error.meta ? JSON.stringify(error.meta) : ""}`
+    return /no such table/i.test(message) && /main\.User/i.test(message)
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  return /no such table/i.test(message) && /main\.User/i.test(message)
 }
 
 async function resolveDatabaseUserId(email?: string | null) {
@@ -38,6 +49,14 @@ async function resolveDatabaseUserId(email?: string | null) {
     userIdCache.set(normalizedEmail, userId)
     return userId
   } catch (error) {
+    if (isMissingUserTableError(error)) {
+      if (env.nodeEnv !== "production") {
+        console.warn("[auth] User table is not ready yet; skipping database user lookup.")
+      }
+      userIdCache.set(normalizedEmail, null)
+      return null
+    }
+
     console.error("[auth] Database error resolving user ID:", error)
     return null
   }
@@ -89,7 +108,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const userEmail = sessionUser.email ?? currentToken.email
 
         if (userEmail) {
-          await UserService.grantMonthlyFreeCreditsIfNeeded(userEmail)
+          try {
+            await UserService.grantMonthlyFreeCreditsIfNeeded(userEmail)
+          } catch (error) {
+            console.error("[auth] Session credit sync warning:", error)
+          }
         }
 
         const databaseUserId = await resolveDatabaseUserId(userEmail)

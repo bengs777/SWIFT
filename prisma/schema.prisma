@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("TURSO_DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
 
 // User accounts from Google OAuth
@@ -36,6 +36,7 @@ model User {
   creditGrantsReversed CreditGrant[] @relation("CreditGrantReversedBy")
   billingTransactionsAsActor BillingTransaction[] @relation("BillingTransactionActor")
   billingTransactionsAsCounterparty BillingTransaction[] @relation("BillingTransactionCounterparty")
+  uploadedAssets ProjectAsset[]
 
   @@index([email])
   @@index([isDeveloperAccount])
@@ -141,6 +142,7 @@ model Project {
   files     ProjectFile[]
   history   GenerationHistory[]
   requestLogs RequestLog[]
+  projectAssets ProjectAsset[]
 
   @@index([workspaceId])
   @@index([templateId])
@@ -159,6 +161,27 @@ model ProjectFile {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+}
+
+model ProjectAsset {
+  id            String   @id @default(cuid())
+  projectId     String
+  userId        String
+  originalName  String
+  mimeType      String
+  size          Int
+  kind          String
+  storageBucket String
+  storagePath   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storageBucket, storagePath])
+  @@index([projectId])
+  @@index([userId])
 }
 
 // Track generation history

@@ -3,16 +3,30 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/db/client'
 import { WorkspaceService } from '@/lib/services/workspace.service'
 
-export async function GET(request: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+function isMissingUserTableError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return /no such table/i.test(message) && /main\.User/i.test(message)
+}
 
+export async function GET(request: NextRequest) {
   try {
+    const session = await auth()
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const workspaces = await WorkspaceService.getUserWorkspaces(session.user.id)
     return NextResponse.json(workspaces)
   } catch (error) {
+    if (isMissingUserTableError(error)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[v0] User table is not ready yet; returning empty workspaces list.')
+      }
+
+      return NextResponse.json([])
+    }
+
     console.error('[v0] Error fetching workspaces:', error)
     return NextResponse.json(
       { error: 'Failed to fetch workspaces' },

@@ -158,10 +158,29 @@ export interface ModelScore {
 export interface PromptAttachment {
   id: string
   name: string
+  originalName?: string
   mimeType: string
   size: number
   kind: "image" | "text" | "binary"
   content: string
+  assetId?: string
+  storageBucket?: string
+  storagePath?: string
+  uploadedAt?: string
+  uploadedByUserId?: string
+}
+
+export interface StoredProjectAsset {
+  id: string
+  projectId: string
+  userId: string
+  originalName: string
+  mimeType: string
+  size: number
+  kind: PromptAttachment["kind"]
+  storageBucket: string
+  storagePath: string
+  createdAt: string
 }
 
 // Chat types
