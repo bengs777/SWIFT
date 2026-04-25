@@ -78,3 +78,4 @@ the production database contains the Prisma tables, especially `User`,
 - `GOOGLE_AUTH_SETUP.md` contains the step-by-step production auth checklist.
 - OpenRouter free models are pinned in the runtime model list so the app stays on the free-only path by default.
 # Swift
+# swift
