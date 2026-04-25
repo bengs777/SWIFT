@@ -8,6 +8,9 @@
     "build": "node scripts/vercel-build.js",
     "start": "next start",
     "lint": "eslint .",
+    "db:push:local": "node scripts/db-push.js local",
+    "db:push:prod": "node scripts/db-push.js prod",
+    "db:generate": "prisma generate",
     "seed:developer": "node scripts/seed-developer-account.mjs",
     "postinstall": "prisma generate"
   },

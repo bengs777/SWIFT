@@ -5,7 +5,7 @@ import { BillingService } from "@/lib/services/billing.service"
 import { ModelConfigService } from "@/lib/services/model-config.service"
 import { enforceUserRateLimit } from "@/lib/security/rate-limit"
 import { env } from "@/lib/env"
-import { buildProjectFiles } from "@/lib/ai/project-scaffold"
+import { buildModuleStatusReport, buildProjectFiles } from "@/lib/ai/project-scaffold"
 import { extractGeneratedFilesFromProviderMessage, mergeGeneratedFiles } from "@/lib/ai/provider-output"
 import { enhancePromptWithAgentRouter } from "@/lib/ai/prompt-enhancer"
 import { appendPreviewContextToPrompt, buildPreviewContextPacket, buildPreviewInspectionPrompt, normalizePreviewContext } from "@/lib/ai/preview-context"
@@ -37,6 +37,24 @@ class StrictFullStackValidationError extends Error {
     this.name = "StrictFullStackValidationError"
     this.details = details
   }
+}
+
+class RelevanceValidationError extends Error {
+  details: RelevanceReport
+
+  constructor(details: RelevanceReport) {
+    super("RELEVANCE_FAILSAFE_TRIGGERED")
+    this.name = "RelevanceValidationError"
+    this.details = details
+  }
+}
+
+type RelevanceReport = {
+  score: number
+  totalTerms: number
+  matchedTerms: string[]
+  missingTerms: string[]
+  promptTerms: string[]
 }
 
 const MAX_PROMPT_LENGTH = 12000
@@ -375,6 +393,11 @@ export async function POST(request: NextRequest) {
             files,
             code: files[0]?.content || '',
             historyId: existing.id,
+            moduleStatus: buildModuleStatusReport({
+              projectName: project.name,
+              prompt,
+              previewStatus: "success",
+            }),
             usage: {
               cost: Number(existing.cost || 0),
               remainingBalance: user.balance,
@@ -432,6 +455,11 @@ export async function POST(request: NextRequest) {
           files: orchestration.files,
           code: orchestration.files?.[0]?.content || '',
           historyId: orchestration.historyId,
+          moduleStatus: buildModuleStatusReport({
+            projectName: project.name,
+            prompt,
+            previewStatus: "success",
+          }),
           usage: {
             cost: 0,
             remainingBalance: user.balance,
@@ -506,6 +534,11 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      const relevanceReport = evaluateOutputRelevance(prompt, generatedFiles)
+      if (shouldFailRelevanceGate(relevanceReport, providerParsed.files.length, existingFiles.length)) {
+        throw new RelevanceValidationError(relevanceReport)
+      }
+
       log("info", "Generation output assembled", {
         projectId: project.id,
         selectedModel: modelConfig.key,
@@ -520,6 +553,9 @@ export async function POST(request: NextRequest) {
         shouldRebaseFromScaffold,
         providerUpdatedEntry,
         promptMode,
+        relevanceScore: relevanceReport.score,
+        relevanceMatchedTerms: relevanceReport.matchedTerms,
+        relevanceMissingTerms: relevanceReport.missingTerms,
         finalFileCount: generatedFiles.length,
       })
 
@@ -559,6 +595,7 @@ export async function POST(request: NextRequest) {
         files: generatedFiles,
         previewFiles,
         plan: promptEnhancement.plan,
+        moduleStatus: scaffold.moduleStatus,
         code: generatedFiles[0]?.content || "",
         historyId,
         usage: {
@@ -572,11 +609,20 @@ export async function POST(request: NextRequest) {
       })
     } catch (error) {
       const isStrictFullStackError = error instanceof StrictFullStackValidationError
+      const isRelevanceError = error instanceof RelevanceValidationError
       const errorMessage = error instanceof Error ? error.message : "AI request failed"
-      const scaffoldFallback = buildProjectFiles({
+      const scaffoldFallbackResult = buildProjectFiles({
         prompt: promptWithPreviewContext,
         projectName: project.name,
-      }).files
+        providerMessage: errorMessage,
+      })
+      const scaffoldFallback = scaffoldFallbackResult.files
+      const moduleStatus = buildModuleStatusReport({
+        projectName: project.name,
+        prompt: promptWithPreviewContext,
+        previewStatus: isStrictFullStackError || isRelevanceError ? "fallback" : "error",
+        errorMessage,
+      })
       const fallbackFiles = isStrictFullStackError
         ? autoRepairFullStackFiles(
             existingFiles.length > 0 ? existingFiles : scaffoldFallback,
@@ -587,6 +633,8 @@ export async function POST(request: NextRequest) {
           : scaffoldFallback
       const friendlyMessage = isStrictFullStackError
         ? buildStrictFailSafeMessage((error as StrictFullStackValidationError).details)
+        : isRelevanceError
+          ? buildRelevanceFailSafeMessage((error as RelevanceValidationError).details)
         : getFriendlyProviderErrorMessage(errorMessage, modelConfig.provider)
 
       await BillingService.refundReservation(
@@ -613,6 +661,7 @@ export async function POST(request: NextRequest) {
         files: fallbackFiles,
         previewFiles,
         plan: promptEnhancement.plan,
+        moduleStatus,
         code: fallbackFiles[0]?.content || "",
         historyId,
         usage: {
@@ -629,8 +678,16 @@ export async function POST(request: NextRequest) {
                 type: "strict-fullstack",
                 details: (error as StrictFullStackValidationError).details,
               },
-              code: "STRICT_FULLSTACK_FAILSAFE",
+              failSafeCode: "STRICT_FULLSTACK_FAILSAFE",
             }
+          : isRelevanceError
+            ? {
+                failSafe: {
+                  type: "relevance",
+                  details: (error as RelevanceValidationError).details,
+                },
+                failSafeCode: "RELEVANCE_FAILSAFE",
+              }
           : {}),
       })
     }
@@ -1076,6 +1133,9 @@ function enforceFullStackRequirement(prompt: string) {
     "Prioritize usefulness, polish, modern UI quality, conversion-focused UX, and production-ready structure over mockups.",
     "If this prompt is about an existing project, patch the existing files first, preserve working structure, and add new files only when needed.",
     "Keep changes coherent and iterative. Prefer the smallest useful edit set that moves the project forward.",
+    "Continuity requirement: treat large products as phased builds. Do not only create empty folders. Each response must implement one visible, working module and preserve the previous project direction.",
+    "Preview-first requirement: the preview must show useful information even when some modules are mock, partial, or planned. Include a visible build/status section listing ready modules, partial modules, planned modules, errors if any, and next recommended steps.",
+    "If building a marketplace such as BelanjaKu/Shopee, start with buyer storefront + product listing + cart/checkout mock, then plan Seller Center, Admin CMS, search, notifications, moderation, and payment webhook as explicit next modules.",
     "Return ONLY valid JSON object with files array.",
     "IMPORTANT for preview: For any frontend/app files intended to run in the browser preview, do NOT use async React components, top-level await, or server-only APIs. Additionally, include a preview-safe variant for each frontend file under the 'preview/' path (for example 'preview/app/dashboard/page.tsx') or as a sibling file with '.preview' before the extension (e.g., 'app/dashboard/page.preview.tsx'). The preview variant must be a client component (include the 'use client' directive), must avoid server-only imports (fs, server-only libs), must avoid top-level await, and should perform data fetching via client-side patterns (useEffect) or call included API routes. Preview variants should be self-contained and renderable in a plain browser iframe using React UMD + Babel. If providing a preview variant is not possible, include clear instructions in a README file explaining how to make the file previewable.",
   ].join("\n\n")
@@ -1330,6 +1390,146 @@ function buildStrictFailSafeMessage(details: {
     `- Jumlah file akhir saat validasi: ${details.finalFileCount}`,
     "",
     "Saldo request ini sudah otomatis direfund. Coba prompt yang lebih spesifik atau ganti model.",
+  ].join("\n")
+}
+
+function evaluateOutputRelevance(prompt: string, files: GeneratedFile[]): RelevanceReport {
+  const promptTerms = extractRelevanceTerms(prompt)
+  const searchableOutput = files
+    .filter((file) => isRelevanceSearchablePath(file.path))
+    .map((file) => `${file.path}\n${file.content}`)
+    .join("\n")
+    .toLowerCase()
+    .slice(0, 60000)
+
+  const matchedTerms = promptTerms.filter((term) => searchableOutput.includes(term))
+  const missingTerms = promptTerms.filter((term) => !matchedTerms.includes(term))
+  const score = promptTerms.length === 0 ? 1 : matchedTerms.length / promptTerms.length
+
+  return {
+    score: Number(score.toFixed(3)),
+    totalTerms: promptTerms.length,
+    matchedTerms,
+    missingTerms,
+    promptTerms,
+  }
+}
+
+function shouldFailRelevanceGate(report: RelevanceReport, providerFileCount: number, existingFileCount: number) {
+  if (providerFileCount === 0 || existingFileCount > 0) {
+    return false
+  }
+
+  if (report.totalTerms < 2) {
+    return false
+  }
+
+  return report.score < 0.35 && report.matchedTerms.length === 0
+}
+
+function extractRelevanceTerms(prompt: string) {
+  const normalized = prompt
+    .toLowerCase()
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const phrases = [
+    "toko online",
+    "company profile",
+    "landing page",
+    "admin panel",
+    "panel admin",
+    "booking dokter",
+    "janji temu",
+    "rekam medis",
+    "dry clean",
+    "file explorer",
+    "live preview",
+    "command bar",
+  ].filter((phrase) => normalized.includes(phrase))
+
+  const stopWords = new Set([
+    "buat",
+    "bikin",
+    "create",
+    "build",
+    "generate",
+    "tolong",
+    "please",
+    "web",
+    "website",
+    "app",
+    "aplikasi",
+    "project",
+    "halaman",
+    "page",
+    "yang",
+    "untuk",
+    "dengan",
+    "dan",
+    "atau",
+    "di",
+    "ke",
+    "dari",
+    "ini",
+    "itu",
+    "saya",
+    "aku",
+    "kami",
+    "kita",
+    "user",
+    "admin",
+    "modern",
+    "bagus",
+    "keren",
+    "simple",
+    "sederhana",
+    "responsive",
+    "fitur",
+    "data",
+    "ui",
+    "layout",
+  ])
+
+  const words = normalized
+    .split(" ")
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 4 && !stopWords.has(word))
+
+  return Array.from(new Set([...phrases, ...words])).slice(0, 12)
+}
+
+function isRelevanceSearchablePath(path: string) {
+  const normalized = path.replace(/\\/g, "/").toLowerCase()
+  return (
+    normalized === "app/page.tsx" ||
+    normalized === "app/layout.tsx" ||
+    normalized.includes("/page.") ||
+    normalized.startsWith("components/") ||
+    normalized.startsWith("app/api/") ||
+    normalized.startsWith("lib/") ||
+    normalized.endsWith(".md") ||
+    normalized.endsWith(".json") ||
+    normalized.endsWith(".prisma")
+  )
+}
+
+function buildRelevanceFailSafeMessage(details: RelevanceReport) {
+  const promptTerms = details.promptTerms.length > 0 ? details.promptTerms.join(", ") : "none"
+  const missing = details.missingTerms.length > 0 ? details.missingTerms.join(", ") : "none"
+
+  return [
+    "Relevance fail-safe aktif: hasil generate ditahan karena tidak cukup cocok dengan prompt user.",
+    "",
+    "Diagnostik:",
+    `- Skor relevansi: ${details.score}`,
+    `- Keyword prompt: ${promptTerms}`,
+    `- Keyword belum muncul di output: ${missing}`,
+    "",
+    "Saldo request ini sudah otomatis direfund. Coba ulang dengan domain, fitur wajib, dan gaya UI yang lebih spesifik.",
   ].join("\n")
 }
 

@@ -83,9 +83,17 @@ const targetSignals = [
   "tombol",
   "button",
   "toko",
+  "toko online",
+  "jualan",
+  "produk",
   "ecommerce",
+  "e-commerce",
   "portfolio",
+  "portofolio",
+  "company profile",
   "booking",
+  "reservasi",
+  "jadwal",
   "reservation",
   "appointment",
   "crm",
@@ -96,6 +104,21 @@ const targetSignals = [
   "profile",
   "checkout",
   "payment",
+  "pembayaran",
+  "laundry",
+  "klinik",
+  "dokter",
+  "sekolah",
+  "kampus",
+  "restoran",
+  "cafe",
+  "kopi",
+  "hotel",
+  "travel",
+  "event",
+  "berita",
+  "artikel",
+  "kasir",
   "page",
   "halaman",
   "fitur",
@@ -129,6 +152,114 @@ const detailSignals = [
   "mobile",
   "responsive",
   "service",
+  "layanan",
+  "harga",
+  "pricing",
+  "paket",
+  "produk",
+  "katalog",
+  "keranjang",
+  "pesanan",
+  "invoice",
+  "jadwal",
+  "reservasi",
+  "booking",
+  "dokter",
+  "siswa",
+  "guru",
+  "customer",
+  "pelanggan",
+  "testimoni",
+  "galeri",
+  "kontak",
+  "whatsapp",
+]
+
+const vagueTargetSignals = [
+  "web",
+  "website",
+  "app",
+  "aplikasi",
+  "project",
+  "starter",
+  "boilerplate",
+  "page",
+  "halaman",
+  "ui",
+]
+
+const domainSignals = [
+  "dashboard",
+  "landing",
+  "auth",
+  "login",
+  "register",
+  "toko",
+  "toko online",
+  "jualan",
+  "produk",
+  "shop",
+  "store",
+  "ecommerce",
+  "e-commerce",
+  "portfolio",
+  "portofolio",
+  "company profile",
+  "booking",
+  "reservasi",
+  "appointment",
+  "crm",
+  "blog",
+  "artikel",
+  "berita",
+  "laundry",
+  "klinik",
+  "dokter",
+  "sekolah",
+  "kampus",
+  "restoran",
+  "cafe",
+  "kopi",
+  "hotel",
+  "travel",
+  "kasir",
+]
+
+const audienceSignals = [
+  "untuk",
+  "for",
+  "pelanggan",
+  "customer",
+  "admin",
+  "owner",
+  "pemilik",
+  "siswa",
+  "guru",
+  "dokter",
+  "pasien",
+  "tim",
+  "staff",
+  "sales",
+  "user",
+  "pengguna",
+]
+
+const styleSignals = [
+  "modern",
+  "minimalis",
+  "minimalist",
+  "clean",
+  "premium",
+  "elegan",
+  "elegant",
+  "dark",
+  "light",
+  "warna",
+  "tema",
+  "mobile",
+  "responsive",
+  "profesional",
+  "professional",
 ]
 
 const genericBuildSignals = [
@@ -389,6 +520,10 @@ export function analyzePromptIntent(prompt: string, language: PromptLanguage = "
   const hasAction = actionSignals.some((signal) => normalized.includes(signal))
   const hasTarget = targetSignals.some((signal) => normalized.includes(signal))
   const hasDetail = detailSignals.some((signal) => normalized.includes(signal))
+  const hasConcreteDomain = domainSignals.some((signal) => normalized.includes(signal))
+  const hasOnlyVagueTarget = hasTarget && !hasConcreteDomain && vagueTargetSignals.some((signal) => normalized.includes(signal))
+  const hasAudience = audienceSignals.some((signal) => normalized.includes(signal))
+  const hasStyle = styleSignals.some((signal) => normalized.includes(signal))
   const hasWorkspaceSignal = workspaceSignals.some((signal) => normalized.includes(signal))
   const hasPatchSignal = patchSignals.some((signal) => normalized.includes(signal))
   const hasInspectSignal = inspectSignals.some((signal) => normalized.includes(signal))
@@ -506,7 +641,17 @@ export function analyzePromptIntent(prompt: string, language: PromptLanguage = "
 
   const looksLikeBuildRequest = hasAction && (hasTarget || hasBuildKeyword || hasPatchSignal || hasWorkspaceSignal)
   if (looksLikeBuildRequest) {
-    const needsClarification = words.length <= 7 || !hasDetail
+    const specificityScore = [
+      hasConcreteDomain,
+      hasDetail,
+      hasAudience,
+      hasStyle,
+      words.length >= 9,
+    ].filter(Boolean).length
+    const needsClarification =
+      !hasPatchSignal &&
+      !hasWorkspaceSignal &&
+      (words.length <= 6 || hasOnlyVagueTarget || specificityScore < 2)
 
     return {
       mode: "build",

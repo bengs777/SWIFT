@@ -1,4 +1,4 @@
-import type { GeneratedFile } from "@/lib/types"
+import type { GeneratedFile, ModuleStatusItem, ModuleStatusReport } from "@/lib/types"
 
 type BuildProjectFilesInput = {
   prompt: string
@@ -11,6 +11,7 @@ type BuildProjectFilesInput = {
 type BuildProjectFilesOutput = {
   message: string
   files: GeneratedFile[]
+  moduleStatus: ModuleStatusReport
 }
 
 type BuildIntent = "dashboard" | "ecommerce" | "landing" | "portfolio" | "booking" | "crm" | "generic"
@@ -25,6 +26,12 @@ export function buildProjectFiles({
   const name = sanitizeName(projectName || inferName(prompt) || "Swift Starter")
   const intent = inferBuildIntent(prompt)
   const brief = promptSummary || prompt
+  const moduleStatus = buildModuleStatusReport({
+    projectName: name,
+    prompt: originalPrompt || prompt,
+    intent,
+    previewStatus: providerMessage ? "fallback" : "success",
+  })
 
   const baseFiles = buildStandardStructureFiles(name)
   const domainOverrides =
@@ -49,11 +56,15 @@ export function buildProjectFiles({
     providerMessage,
   })
 
-  const files = mergeFilesByPath([...baseFiles, readme], domainOverrides)
+  const files = mergeFilesByPath([...baseFiles, readme], [
+    ...domainOverrides,
+    buildModuleStatusDataFile(moduleStatus),
+  ])
 
   return {
     message: `Generated a full-stack ${intent} starter for ${name} using the standard Swift project tree.`,
     files,
+    moduleStatus,
   }
 }
 
@@ -83,13 +94,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `export default function HomePage() {
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+export default function HomePage() {
   return (
     <main className="min-h-screen bg-neutral-950 px-6 py-20 text-white">
       <section className="mx-auto max-w-4xl rounded-3xl border border-white/10 bg-white/5 p-10">
         <h1 className="text-4xl font-semibold">Starter Project</h1>
         <p className="mt-4 text-neutral-300">Update this page from Code tab.</p>
       </section>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -157,6 +172,77 @@ export async function GET() {
       { key: "default", label: "Default", provider: "openai", price: 1000 },
     ],
   })
+}
+`,
+    },
+    {
+      path: "components/build-status-panel.tsx",
+      language: "tsx",
+      content: `import type { ModuleStatusItem, ModuleStatusReport } from "@/lib/build-status"
+
+function StatusList({ title, items }: { title: string; items: ModuleStatusItem[] }) {
+  if (items.length === 0) {
+    return null
+  }
+
+  return (
+    <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <h3 className="text-sm font-semibold text-white">{title}</h3>
+      <ul className="mt-3 space-y-2">
+        {items.map((item) => (
+          <li key={item.name} className="rounded-lg bg-black/20 px-3 py-2">
+            <p className="text-sm font-medium text-white">{item.name}</p>
+            <p className="mt-1 text-xs text-neutral-400">{item.detail}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+export function BuildStatusPanel({ status }: { status: ModuleStatusReport }) {
+  const tone =
+    status.previewStatus === "success"
+      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+      : status.previewStatus === "error"
+        ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
+        : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+
+  return (
+    <aside className="mx-auto mt-6 max-w-5xl rounded-2xl border border-white/10 bg-neutral-900/90 p-5 text-white shadow-2xl">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Build Status</p>
+          <h2 className="mt-2 text-2xl font-semibold">{status.projectName || "Generated Project"}</h2>
+          <p className="mt-1 text-sm text-neutral-400">Current phase: {status.currentPhase}</p>
+        </div>
+        <span className={"w-fit rounded-full border px-3 py-1 text-xs font-medium " + tone}>
+          Preview {status.previewStatus}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        <StatusList title="Ready" items={status.ready} />
+        <StatusList title="Partial" items={status.partial} />
+        <StatusList title="Planned" items={status.planned} />
+      </div>
+
+      {status.errors.length > 0 && (
+        <div className="mt-4">
+          <StatusList title="Errors" items={status.errors} />
+        </div>
+      )}
+
+      <section className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <h3 className="text-sm font-semibold text-white">Next Recommended Steps</h3>
+        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-neutral-300">
+          {status.nextSteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      </section>
+    </aside>
+  )
 }
 `,
     },
@@ -493,7 +579,10 @@ function buildGenericOverrideFiles(name: string, prompt: string): GeneratedFile[
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `export default function HomePage() {
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+export default function HomePage() {
   const projectName = ${safeName}
   const buildBrief = ${safePrompt}
 
@@ -506,6 +595,7 @@ function buildGenericOverrideFiles(name: string, prompt: string): GeneratedFile[
           This output follows Swift standard structure: app, components, hooks, lib, prisma, public, styles.
         </p>
       </section>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -522,7 +612,10 @@ function buildDashboardOverrideFiles(name: string, prompt: string): GeneratedFil
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `const stats = [
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+const stats = [
   { label: "Revenue", value: "Rp 128.450.000", trend: "+12.4%" },
   { label: "Orders", value: "2,481", trend: "+8.1%" },
   { label: "Active Users", value: "9,204", trend: "+5.9%" },
@@ -583,6 +676,7 @@ export default function HomePage() {
             </ul>
           </article>
         </section>
+        <BuildStatusPanel status={moduleStatus} />
       </div>
     </main>
   )
@@ -625,7 +719,10 @@ function buildCommerceOverrideFiles(name: string, prompt: string): GeneratedFile
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `export default function HomePage() {
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+export default function HomePage() {
   const projectName = ${safeName}
   const buildBrief = ${safePrompt}
 
@@ -638,6 +735,7 @@ function buildCommerceOverrideFiles(name: string, prompt: string): GeneratedFile
         <h1 className="mt-5 text-4xl font-semibold leading-tight">Build a modern commerce storefront</h1>
         <p className="mt-3 max-w-2xl text-neutral-300">Build brief: {buildBrief}</p>
       </section>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -747,7 +845,10 @@ function buildLandingOverrideFiles(name: string, prompt: string): GeneratedFile[
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `const features = [
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+const features = [
   "Conversion-focused hero with strong value proposition",
   "Social proof and trust indicators",
   "Clear call-to-action for demo or signup",
@@ -780,6 +881,7 @@ export default function HomePage() {
           </article>
         ))}
       </section>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -827,7 +929,10 @@ function buildPortfolioOverrideFiles(name: string, prompt: string): GeneratedFil
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `const projects = [
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+const projects = [
   { title: "Identity System Revamp", result: "+37% conversion" },
   { title: "SaaS Onboarding UX", result: "-42% drop-off" },
   { title: "B2B Dashboard Redesign", result: "+28 NPS" },
@@ -859,6 +964,7 @@ export default function HomePage() {
       <footer id="contact" className="border-t border-stone-200 px-4 py-8 text-center text-sm text-stone-600">
         Ready to collaborate? Contact via portfolio inquiry form.
       </footer>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -890,7 +996,10 @@ function buildBookingOverrideFiles(name: string, prompt: string): GeneratedFile[
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `const slots = [
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+const slots = [
   { id: "slot-1", label: "Mon 09:00", available: true },
   { id: "slot-2", label: "Mon 11:00", available: false },
   { id: "slot-3", label: "Tue 14:00", available: true },
@@ -923,6 +1032,7 @@ export default function HomePage() {
           </ul>
         )}
       </section>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -970,7 +1080,10 @@ function buildCrmOverrideFiles(name: string, prompt: string): GeneratedFile[] {
     {
       path: "app/page.tsx",
       language: "tsx",
-      content: `const leads = [
+      content: `import { BuildStatusPanel } from "@/components/build-status-panel"
+import { moduleStatus } from "@/lib/build-status"
+
+const leads = [
   { id: "lead-1", name: "Ari Putra", stage: "Qualified", value: "Rp 45.000.000" },
   { id: "lead-2", name: "Bina Group", stage: "Proposal", value: "Rp 120.000.000" },
   { id: "lead-3", name: "Citra Labs", stage: "Negotiation", value: "Rp 80.000.000" },
@@ -1008,6 +1121,7 @@ export default function HomePage() {
           </ul>
         )}
       </section>
+      <BuildStatusPanel status={moduleStatus} />
     </main>
   )
 }
@@ -1111,6 +1225,184 @@ ${escapeMultilineText(effectivePrompt)}
 ${escapeMultilineText(providerMessage || "Local scaffold fallback was used.")}
 `,
   }
+}
+
+export function buildModuleStatusReport({
+  projectName,
+  prompt,
+  intent,
+  previewStatus = "success",
+  errorMessage,
+}: {
+  projectName?: string | null
+  prompt: string
+  intent?: BuildIntent
+  previewStatus?: ModuleStatusReport["previewStatus"]
+  errorMessage?: string | null
+}): ModuleStatusReport {
+  const normalized = prompt.toLowerCase()
+  const inferredIntent = intent || inferBuildIntent(prompt)
+  const ready: ModuleStatusItem[] = [
+    {
+      name: "Preview shell",
+      status: "ready",
+      detail: "A browser-safe page is available with mock data and visible build status.",
+    },
+    {
+      name: "App Router structure",
+      status: "ready",
+      detail: "Core app, components, lib, prisma, public, and route handler folders are represented.",
+    },
+  ]
+  const partial: ModuleStatusItem[] = []
+  const planned: ModuleStatusItem[] = []
+  const errors: ModuleStatusItem[] = []
+
+  if (inferredIntent === "ecommerce" || /belanjaku|marketplace|shopee|seller|buyer|cart|checkout|midtrans/.test(normalized)) {
+    ready.push({
+      name: "Buyer storefront",
+      status: "ready",
+      detail: "Product-facing homepage and product API mock are included for preview.",
+    })
+    partial.push({
+      name: "Cart and checkout engine",
+      status: "partial",
+      detail: "Checkout/order routes use mock payloads; payment provider integration is not connected yet.",
+    })
+    planned.push(
+      {
+        name: "Seller Center",
+        status: "planned",
+        detail: "Add product CRUD, order management, seller analytics, and settlement pages.",
+      },
+      {
+        name: "Admin CMS",
+        status: "planned",
+        detail: "Add moderation queues, banner CMS, category management, and audit logs.",
+      },
+      {
+        name: "Midtrans webhook",
+        status: "planned",
+        detail: "Connect signed payment notifications after env keys and database writes are ready.",
+      }
+    )
+  } else if (inferredIntent === "dashboard") {
+    ready.push({
+      name: "Dashboard overview",
+      status: "ready",
+      detail: "KPI cards, activity feed, and summary route are available with mock metrics.",
+    })
+    partial.push({
+      name: "Analytics detail",
+      status: "partial",
+      detail: "Overview data is mocked; drill-down charts and filters are planned.",
+    })
+  } else if (inferredIntent === "booking") {
+    ready.push({
+      name: "Booking preview",
+      status: "ready",
+      detail: "Available slots and booking route mock are included.",
+    })
+    partial.push({
+      name: "Real scheduling rules",
+      status: "partial",
+      detail: "Calendar conflict checks and notifications still need database-backed logic.",
+    })
+  } else {
+    partial.push({
+      name: "Domain module",
+      status: "partial",
+      detail: "The first visible slice is ready; deeper business logic should be implemented in the next prompt.",
+    })
+  }
+
+  planned.push({
+    name: "Production data layer",
+    status: "planned",
+    detail: "Replace preview mock data with Prisma service calls once schema and env are finalized.",
+  })
+
+  if (previewStatus === "error" && errorMessage) {
+    errors.push({
+      name: "Preview error",
+      status: "error",
+      detail: errorMessage,
+    })
+  }
+
+  return {
+    projectName: projectName || undefined,
+    previewStatus,
+    currentPhase: inferCurrentPhase(inferredIntent, normalized),
+    ready,
+    partial,
+    planned,
+    errors,
+    nextSteps: buildNextSteps(inferredIntent, normalized, previewStatus),
+  }
+}
+
+function buildModuleStatusDataFile(status: ModuleStatusReport): GeneratedFile {
+  return {
+    path: "lib/build-status.ts",
+    language: "ts",
+    content: `export type ModuleStatusState = "ready" | "partial" | "planned" | "error"
+
+export type ModuleStatusItem = {
+  name: string
+  status: ModuleStatusState
+  detail: string
+}
+
+export type ModuleStatusReport = {
+  projectName?: string
+  previewStatus: "success" | "fallback" | "error"
+  currentPhase: string
+  ready: ModuleStatusItem[]
+  partial: ModuleStatusItem[]
+  planned: ModuleStatusItem[]
+  errors: ModuleStatusItem[]
+  nextSteps: string[]
+}
+
+export const moduleStatus: ModuleStatusReport = ${JSON.stringify(status, null, 2)}
+`,
+  }
+}
+
+function inferCurrentPhase(intent: BuildIntent, normalizedPrompt: string) {
+  if (/seller|penjual/.test(normalizedPrompt)) return "seller-center"
+  if (/admin|cms|moderation|moderasi/.test(normalizedPrompt)) return "admin-cms"
+  if (/checkout|payment|midtrans|bayar|pembayaran/.test(normalizedPrompt)) return "checkout-payment"
+  if (intent === "ecommerce") return "buyer-storefront"
+  if (intent === "dashboard") return "dashboard-overview"
+  if (intent === "booking") return "booking-flow"
+  return "preview-first-foundation"
+}
+
+function buildNextSteps(intent: BuildIntent, normalizedPrompt: string, previewStatus: ModuleStatusReport["previewStatus"]) {
+  if (previewStatus === "error") {
+    return [
+      "Fix the preview error shown in the status panel.",
+      "Regenerate only the broken file after the preview renders.",
+      "Continue with the next module once the shell is stable.",
+    ]
+  }
+
+  if (intent === "ecommerce" || /belanjaku|marketplace|shopee/.test(normalizedPrompt)) {
+    return [
+      "Implement product CRUD for Seller Center.",
+      "Connect cart state to checkout and order routes.",
+      "Add Midtrans sandbox webhook with signature validation.",
+      "Build Admin moderation for products, sellers, banners, and reports.",
+    ]
+  }
+
+  return [
+    "Turn the preview mock data into Prisma-backed services.",
+    "Add the next user-facing flow as a small, testable module.",
+    "Keep the build status panel updated after each generation.",
+  ]
 }
 
 function mergeFilesByPath(base: GeneratedFile[], overrides: GeneratedFile[]) {

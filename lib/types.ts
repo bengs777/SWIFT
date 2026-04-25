@@ -234,6 +234,26 @@ export interface AIGenerationResponse {
   files: GeneratedFile[]
   thinking?: string
   error?: string
+  moduleStatus?: ModuleStatusReport
+}
+
+export type ModuleStatusState = "ready" | "partial" | "planned" | "error"
+
+export interface ModuleStatusItem {
+  name: string
+  status: ModuleStatusState
+  detail: string
+}
+
+export interface ModuleStatusReport {
+  projectName?: string
+  previewStatus: "success" | "fallback" | "error"
+  currentPhase: string
+  ready: ModuleStatusItem[]
+  partial: ModuleStatusItem[]
+  planned: ModuleStatusItem[]
+  errors: ModuleStatusItem[]
+  nextSteps: string[]
 }
 
 export interface AIPlannerOutput {

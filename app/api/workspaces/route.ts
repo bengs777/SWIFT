@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { isMissingRequiredTableError, shouldSoftFailMissingTable } from '@/lib/db/errors'
 import { prisma } from '@/lib/db/client'
 import { WorkspaceService } from '@/lib/services/workspace.service'
 
-function isMissingUserTableError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
-  return /no such table/i.test(message) && /main\.User/i.test(message)
-}
-
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
 
@@ -19,10 +15,8 @@ export async function GET(request: NextRequest) {
     const workspaces = await WorkspaceService.getUserWorkspaces(session.user.id)
     return NextResponse.json(workspaces)
   } catch (error) {
-    if (isMissingUserTableError(error)) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[v0] User table is not ready yet; returning empty workspaces list.')
-      }
+    if (isMissingRequiredTableError(error) && shouldSoftFailMissingTable()) {
+      console.warn('[v0] Required database tables are not ready yet; returning empty workspaces list.')
 
       return NextResponse.json([])
     }

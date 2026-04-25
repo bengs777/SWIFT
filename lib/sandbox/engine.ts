@@ -356,9 +356,11 @@ function transformReactCode(mainFile: GeneratedFile, allFiles: GeneratedFile[]):
   // Remove "use client" directive
   transformed = transformed.replace(/['"]use client['"];?\n?/g, "")
 
-  // Replace export default with App component
-  transformed = transformed.replace(/export\s+default\s+function\s+(\w+)/, "function App")
-  transformed = transformed.replace(/export\s+default\s+(\w+)/, "const App = $1")
+  // Replace export default with an App component the sandbox can render.
+  transformed = transformed.replace(/export\s+default\s+function\s+\w+/, "function App")
+  transformed = transformed.replace(/export\s+default\s+function\s*\(/, "function App(")
+  transformed = transformed.replace(/export\s+default\s+(?:async\s+)?\(/, "const App = (")
+  transformed = transformed.replace(/export\s+default\s+([A-Za-z_$][\w$]*)/, "const App = $1")
 
   // Remove other exports
   transformed = transformed.replace(/export\s+/g, "")
@@ -371,8 +373,25 @@ function transformReactCode(mainFile: GeneratedFile, allFiles: GeneratedFile[]):
   transformed = transformed.replace(/import\s+Image\s+from\s+['"]next\/image['"];?\n?/g, "")
   transformed = transformed.replace(/<Image\s+/g, "<img ")
 
-  // Prepend module registry wrappers so modules are available at runtime
-  return moduleRegistryScript + "\n" + transformed
+  const renderScript = `
+
+;(function(){
+  const rootElement = document.getElementById('root')
+  if (!rootElement) {
+    throw new Error('Preview root element was not found')
+  }
+
+  if (typeof App !== 'function') {
+    throw new Error('Preview entry did not export a renderable React component')
+  }
+
+  const root = ReactDOM.createRoot(rootElement)
+  root.render(React.createElement(App))
+})()
+`
+
+  // Prepend module registry wrappers so modules are available at runtime.
+  return moduleRegistryScript + "\n" + transformed + renderScript
 }
 
 function transformImportsToFallbacks(code: string) {

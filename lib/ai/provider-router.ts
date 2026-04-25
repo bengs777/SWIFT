@@ -159,6 +159,8 @@ export class ProviderRouter {
             body: JSON.stringify({
               model: modelName,
               messages: this.buildMessages(prompt, mode, promptLanguage),
+              temperature: this.getTemperature(mode),
+              top_p: 0.9,
             }),
           },
           "AgentRouter",
@@ -225,6 +227,8 @@ export class ProviderRouter {
             body: JSON.stringify({
               model: modelName,
               messages: this.buildMessages(prompt, mode, promptLanguage),
+              temperature: this.getTemperature(mode),
+              top_p: 0.9,
             }),
           },
           "OpenAI",
@@ -458,6 +462,10 @@ export class ProviderRouter {
         content: prompt,
       },
     ]
+  }
+
+  private static getTemperature(mode: "chat" | "files" | "inspect") {
+    return mode === "chat" ? 0.4 : 0.2
   }
 
   private static async fetchWithTimeout(

@@ -4,7 +4,7 @@ const path = require("path")
 
 const env = { ...process.env }
 env.NODE_ENV = "production"
-env.DATABASE_URL = "file:./prisma/dev.db"
+env.DATABASE_URL = process.env.DATABASE_URL || process.env.TURSO_DATABASE_URL || "file:./dev.db"
 
 const isWindows = process.platform === "win32"
 const MAX_PRISMA_GENERATE_ATTEMPTS = 3
@@ -15,14 +15,6 @@ const prismaClientDir = path.resolve(path.dirname(prismaClientPackageJson), ".."
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const hasExistingPrismaClient = () => fs.existsSync(path.join(prismaClientDir, "index.d.ts"))
-
-async function runPrismaDbPush() {
-  const output = execSync("npx prisma db push --skip-generate", { env, encoding: "utf8" })
-
-  if (output) {
-    process.stdout.write(output)
-  }
-}
 
 async function runPrismaGenerateWithRetry() {
   let lastError = null
@@ -94,7 +86,6 @@ async function runPrismaGenerateWithRetry() {
 }
 
 ;(async () => {
-  await runPrismaDbPush()
   await runPrismaGenerateWithRetry()
 
   execSync("npx next build --webpack", { stdio: "inherit", env })

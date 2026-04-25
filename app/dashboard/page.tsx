@@ -2,7 +2,6 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
 import type { LucideIcon } from "lucide-react"
-import { Prisma } from "@prisma/client"
 import {
   Activity,
   ArrowUpRight,
@@ -20,6 +19,7 @@ import { NewProjectTrigger } from "@/components/dashboard/new-project-trigger"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { isMissingRequiredTableError, shouldSoftFailMissingTable } from "@/lib/db/errors"
 import { prisma } from "@/lib/db/client"
 import { cn } from "@/lib/utils"
 
@@ -37,16 +37,6 @@ type DashboardUsageLog = {
 type DashboardWorkspaceOption = {
   id: string
   name: string
-}
-
-function isMissingUserTableError(error: unknown) {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    const message = `${error.message} ${error.meta ? JSON.stringify(error.meta) : ""}`
-    return /no such table/i.test(message) && /main\.User/i.test(message)
-  }
-
-  const message = error instanceof Error ? error.message : String(error)
-  return /no such table/i.test(message) && /main\.User/i.test(message)
 }
 
 export default async function DashboardPage() {
@@ -124,9 +114,11 @@ export default async function DashboardPage() {
   } catch (error) {
     hasDataWarning = true
 
-    if (!isMissingUserTableError(error)) {
-      console.error("[dashboard] Failed to load dashboard data:", error)
+    if (isMissingRequiredTableError(error) && !shouldSoftFailMissingTable()) {
+      throw error
     }
+
+    console.error("[dashboard] Failed to load dashboard data:", error)
   }
 
   const totalSpent = usageLogs

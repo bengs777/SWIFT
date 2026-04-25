@@ -1,20 +1,11 @@
 import { prisma } from '@/lib/db/client'
+import { isMissingRequiredTableError, shouldSoftFailMissingTable } from '@/lib/db/errors'
 import { env } from '@/lib/env'
 import { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const FREE_CREDITS_AMOUNT = 5000
 const DEVELOPER_TREASURY_CREDITS = 1_000_000
-
-function isMissingUserTableError(error: unknown) {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    const message = `${error.message} ${error.meta ? JSON.stringify(error.meta) : ""}`
-    return /no such table/i.test(message) && /main\.User/i.test(message)
-  }
-
-  const message = error instanceof Error ? error.message : String(error)
-  return /no such table/i.test(message) && /main\.User/i.test(message)
-}
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const getDeveloperTreasuryEmail = () => normalizeEmail(env.devOwnerEmail)
@@ -286,12 +277,11 @@ export class UserService {
         })
       })
     } catch (error) {
-      if (isMissingUserTableError(error)) {
-        if (env.nodeEnv !== "production") {
-          console.warn("[user] User table is not ready yet; skipping monthly free credits sync.")
+      if (isMissingRequiredTableError(error)) {
+        if (shouldSoftFailMissingTable()) {
+          console.warn("[user] Required database tables are not ready yet; skipping monthly free credits sync.")
+          return
         }
-
-        return
       }
 
       throw error

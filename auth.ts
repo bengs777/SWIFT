@@ -1,9 +1,9 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
-import { Prisma } from "@prisma/client"
 import type { Session } from "next-auth"
 import type { JWT } from "next-auth/jwt"
 import { prisma } from "@/lib/db/client"
+import { isMissingRequiredTableError, shouldSoftFailMissingTable } from "@/lib/db/errors"
 import { UserService } from "@/lib/services/user.service"
 import { env } from "@/lib/env"
 
@@ -18,16 +18,6 @@ type AuthSession = Session & {
   user: NonNullable<Session["user"]> & {
     id?: string | null
   }
-}
-
-function isMissingUserTableError(error: unknown) {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    const message = `${error.message} ${error.meta ? JSON.stringify(error.meta) : ""}`
-    return /no such table/i.test(message) && /main\.User/i.test(message)
-  }
-
-  const message = error instanceof Error ? error.message : String(error)
-  return /no such table/i.test(message) && /main\.User/i.test(message)
 }
 
 async function resolveDatabaseUserId(email?: string | null) {
@@ -49,12 +39,14 @@ async function resolveDatabaseUserId(email?: string | null) {
     userIdCache.set(normalizedEmail, userId)
     return userId
   } catch (error) {
-    if (isMissingUserTableError(error)) {
-      if (env.nodeEnv !== "production") {
-        console.warn("[auth] User table is not ready yet; skipping database user lookup.")
+    if (isMissingRequiredTableError(error)) {
+      if (shouldSoftFailMissingTable()) {
+        console.warn("[auth] Required database tables are not ready yet; skipping database user lookup.")
+        userIdCache.set(normalizedEmail, null)
+        return null
       }
-      userIdCache.set(normalizedEmail, null)
-      return null
+
+      throw error
     }
 
     console.error("[auth] Database error resolving user ID:", error)
@@ -111,6 +103,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           try {
             await UserService.grantMonthlyFreeCreditsIfNeeded(userEmail)
           } catch (error) {
+            if (isMissingRequiredTableError(error) && !shouldSoftFailMissingTable()) {
+              throw error
+            }
+
             console.error("[auth] Session credit sync warning:", error)
           }
         }
@@ -140,6 +136,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           userIdCache.delete(user.email.trim().toLowerCase())
         }
       } catch (error) {
+        if (isMissingRequiredTableError(error) && !shouldSoftFailMissingTable()) {
+          console.error("[auth] Required database tables are missing; blocking sign-in until the database is synced.", error)
+          return false
+        }
+
         console.error("[auth] Auth signIn sync warning:", error)
       }
 

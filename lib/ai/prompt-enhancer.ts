@@ -62,24 +62,30 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
   const compactPrompt = inlineText(prompt)
   const normalized = compactPrompt.toLowerCase()
 
-  const looksLikeWorkspace =
-    normalized.includes("workspace") ||
-    normalized.includes("replit") ||
-    normalized.includes("lovable") ||
-    normalized.includes("file explorer") ||
-    normalized.includes("live preview") ||
-    normalized.includes("terminal") ||
-    normalized.includes("code editor") ||
-    normalized.includes("output panel")
+  const looksLikeWorkspace = hasAny(normalized, [
+    "workspace",
+    "replit",
+    "lovable",
+    "file explorer",
+    "file tree",
+    "live preview",
+    "terminal",
+    "code editor",
+    "output panel",
+  ])
 
-  const looksLikeDashboard = normalized.includes("dashboard")
-  const looksLikeAuth = normalized.includes("login") || normalized.includes("sign in") || normalized.includes("auth")
-  const looksLikeLanding = normalized.includes("landing") || normalized.includes("hero") || normalized.includes("marketing")
-  const looksLikeStore = normalized.includes("shop") || normalized.includes("ecommerce") || normalized.includes("store")
-  const looksLikePortfolio = normalized.includes("portfolio") || normalized.includes("personal brand") || normalized.includes("resume")
-  const looksLikeBooking = normalized.includes("booking") || normalized.includes("reservation") || normalized.includes("appointment")
-  const looksLikeCrm = normalized.includes("crm") || normalized.includes("pipeline") || normalized.includes("lead management")
-  const looksLikeBlog = normalized.includes("blog") || normalized.includes("article") || normalized.includes("content")
+  const looksLikeDashboard = hasAny(normalized, ["dashboard", "admin panel", "panel admin", "analytics", "analitik", "laporan"])
+  const looksLikeAuth = hasAny(normalized, ["login", "sign in", "signin", "auth", "register", "daftar", "signup", "masuk"])
+  const looksLikeLanding = hasAny(normalized, ["landing", "hero", "marketing", "company profile", "profil perusahaan", "satu halaman"])
+  const looksLikeStore = hasAny(normalized, ["shop", "ecommerce", "e-commerce", "store", "toko", "toko online", "jualan", "produk", "katalog", "checkout", "keranjang"])
+  const looksLikePortfolio = hasAny(normalized, ["portfolio", "portofolio", "personal brand", "resume", "cv", "showcase", "project gallery"])
+  const looksLikeBooking = hasAny(normalized, ["booking", "reservation", "reservasi", "appointment", "janji temu", "jadwal", "slot"])
+  const looksLikeCrm = hasAny(normalized, ["crm", "pipeline", "lead management", "lead", "sales", "prospek", "pelanggan"])
+  const looksLikeBlog = hasAny(normalized, ["blog", "article", "artikel", "content", "konten", "berita", "post"])
+  const looksLikeLaundry = hasAny(normalized, ["laundry", "cuci", "dry clean", "setrika"])
+  const looksLikeClinic = hasAny(normalized, ["klinik", "dokter", "pasien", "rekam medis", "medical", "clinic"])
+  const looksLikeSchool = hasAny(normalized, ["sekolah", "kampus", "siswa", "guru", "kelas", "course", "kursus", "e-learning", "elearning"])
+  const looksLikeRestaurant = hasAny(normalized, ["restoran", "restaurant", "cafe", "kafe", "kopi", "menu", "reservasi meja"])
 
   const projectName = inferProjectName(compactPrompt)
   const productType =
@@ -101,6 +107,14 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
                 ? "internal CRM business tool"
             : looksLikeBlog
               ? "content website"
+              : looksLikeLaundry
+                ? "laundry service website"
+                : looksLikeClinic
+                  ? "clinic appointment web app"
+                  : looksLikeSchool
+                    ? "education website"
+                    : looksLikeRestaurant
+                      ? "restaurant website"
               : "full-stack web app"
 
   const pages = dedupeItems([
@@ -116,6 +130,10 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeBooking ? "Booking flow page" : "",
     looksLikeCrm ? "CRM pipeline page" : "",
     looksLikeBlog ? "Content detail page" : "",
+    looksLikeLaundry ? "Service order page" : "",
+    looksLikeClinic ? "Doctor appointment page" : "",
+    looksLikeSchool ? "Course or class page" : "",
+    looksLikeRestaurant ? "Menu and reservation page" : "",
   ])
 
   const features = dedupeItems([
@@ -129,6 +147,10 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeBooking ? "Availability calendar, reservation form, and booking confirmation" : "",
     looksLikeCrm ? "Lead list, deal pipeline, and task tracking workflow" : "",
     looksLikeBlog ? "Content list and readable article layout" : "",
+    looksLikeLaundry ? "Service packages, pickup scheduling, and order status" : "",
+    looksLikeClinic ? "Doctor profiles, appointment booking, and patient-friendly service info" : "",
+    looksLikeSchool ? "Programs, class schedule, student/admin-oriented sections" : "",
+    looksLikeRestaurant ? "Menu highlights, table reservation, and location/contact CTA" : "",
     "Responsive navigation, clear CTA, loading states, and empty states",
     "Reusable components and clean state handling",
   ])
@@ -145,6 +167,10 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeBooking ? "/api/bookings" : "",
     looksLikeCrm ? "/api/leads" : "",
     looksLikeBlog ? "/api/posts" : "",
+    looksLikeLaundry ? "/api/orders" : "",
+    looksLikeClinic ? "/api/appointments" : "",
+    looksLikeSchool ? "/api/classes" : "",
+    looksLikeRestaurant ? "/api/reservations" : "",
   ])
 
   const dataModels = dedupeItems([
@@ -158,6 +184,10 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     looksLikeBooking ? "BookingSlot" : "",
     looksLikeCrm ? "Lead" : "",
     looksLikeBlog ? "Post" : "",
+    looksLikeLaundry ? "LaundryOrder" : "",
+    looksLikeClinic ? "Appointment" : "",
+    looksLikeSchool ? "Class" : "",
+    looksLikeRestaurant ? "Reservation" : "",
   ])
 
   const uiStyle = dedupeItems([
@@ -193,6 +223,14 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
                     ? "Build the lead pipeline core first: list, status transitions, and owner visibility."
                 : looksLikeBlog
                   ? "Build the content list and article layout first."
+                  : looksLikeLaundry
+                    ? "Build the service package and pickup order flow first."
+                    : looksLikeClinic
+                      ? "Build the clinic service and appointment booking flow first."
+                      : looksLikeSchool
+                        ? "Build the program overview and class schedule slice first."
+                        : looksLikeRestaurant
+                          ? "Build the menu and reservation CTA slice first."
                   : "Build the next smallest coherent slice first instead of the entire app at once.",
     looksLikeWorkspace
       ? "Add preview, logs, and version-history wiring only after the shell is stable."
@@ -206,6 +244,8 @@ function buildLocalPromptDraft(prompt: string): PromptDraft {
     "Patch existing files first when editing an existing project.",
     "Return only the files you changed or created.",
     "Keep the output browser-safe and previewable when a frontend file is involved.",
+    "Include a visible build/status section in the preview that lists ready modules, partial modules, planned modules, errors, and next steps.",
+    "For large products, implement one visible module per response and keep later modules explicitly marked as planned instead of creating empty folders only.",
     "Prefer preview/ sibling files or .preview variants for browser-rendered pages when needed.",
     "Avoid adding new libraries or architectural layers unless the request explicitly requires them.",
   ])
@@ -391,7 +431,9 @@ function buildProjectMemorySeed(draft: PromptDraft, plan: PromptWorkPlan): Promp
 function serializeDraft(originalPrompt: string, draft: PromptDraft, plan: PromptWorkPlan, projectMemory: PromptMemorySeed) {
   const sections = [
     `User request (verbatim): "${inlineText(originalPrompt)}"`,
-    "Source of truth: use the user request above and the attached context only. Do not promote assumptions into facts.",
+    "SOURCE_OF_TRUTH: the user request above and attached context override every inferred field below.",
+    "USER_FACTS: treat only words explicitly present in the user request as facts. Inferred fields are planning aids, not permission to change the product domain.",
+    "RELEVANCE_RULE: the generated app must visibly match the user's domain, goal, and required features. Do not replace a specific user domain with a generic SaaS, dashboard, or landing page.",
     draft.projectName ? `Working title (inferred): ${draft.projectName}` : "",
     draft.productType ? `Detected product type (inferred): ${draft.productType}` : "",
     draft.coreGoal ? `Primary goal (inferred): ${draft.coreGoal}` : "",
@@ -419,6 +461,10 @@ function formatSection(title: string, items: string[]) {
   }
 
   return `${title}:\n- ${items.slice(0, MAX_ITEMS_PER_SECTION).join("\n- ")}`
+}
+
+function hasAny(value: string, signals: string[]) {
+  return signals.some((signal) => value.includes(signal))
 }
 
 function normalizeText(value: unknown) {
