@@ -39,10 +39,42 @@ Add this exact redirect URI in Google Cloud Console:
 
 ## Build
 
-The project already uses `npm run build` which runs the Vercel build helper in `scripts/vercel-build.js`.
+The project uses `npm run build` to generate Prisma Client and run `next build`.
+Database schema sync is intentionally separate from the build so deploys do not
+modify production data by accident.
+
+## Database Setup
+
+Local development uses SQLite at `prisma/dev.db` by default:
+
+```bash
+npm run db:push:local
+npm run dev
+```
+
+Production uses Turso. Set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` first,
+then sync the schema explicitly before the first production deploy or whenever
+the Prisma schema changes:
+
+```bash
+npm run db:push:prod
+```
+
+If Google sign-in succeeds but the dashboard cannot load workspaces, verify that
+the production database contains the Prisma tables, especially `User`,
+`Workspace`, and `WorkspaceMember`.
+
+## Vercel Deploy Checklist
+
+1. Rotate any secret that has ever appeared in chat, logs, screenshots, or Git history.
+2. Add all required environment variables in Vercel.
+3. Add the Google OAuth production redirect URI.
+4. Run `npm run db:push:prod` against the production Turso database.
+5. Deploy on Vercel and test Google sign-in with a fresh Gmail account.
 
 ## Notes
 
 - Keep `.env` out of Git. Use `.env.example` as the template.
 - `GOOGLE_AUTH_SETUP.md` contains the step-by-step production auth checklist.
 - OpenRouter free models are pinned in the runtime model list so the app stays on the free-only path by default.
+# Swift
