@@ -297,11 +297,11 @@ export function PreviewPanel({
             style={{ width: viewportWidths[viewport], maxWidth: "100%" }}
           >
             {files.length > 0 ? (
-              <SandboxPreview 
-                key={previewKey}
-                files={previewFiles ?? (files)} 
-                onError={handlePreviewError}
-              />
+                <SandboxPreview
+                  key={previewKey}
+                  files={previewFiles ?? files}
+                  onError={handlePreviewError}
+                />
             ) : (
               <EmptyPreview />
             )}
