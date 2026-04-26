@@ -61,14 +61,18 @@ export function PreviewPanel({
 }: PreviewPanelProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<"preview" | "code" | "explorer">("preview")
   const [viewport, setViewport] = useState<ViewportSize>("desktop")
-  // hapus total, tidak perlu local state
+  const [activeFile, setActiveFile] = useState(0)
   const [copied, setCopied] = useState(false)
   const [previewKey, setPreviewKey] = useState(0)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<string[]>(["app", "lib", "prisma"])
   const activeTab = activeTabProp || internalActiveTab
 
-  // hapus total
+  useEffect(() => {
+    if (files.length > 0 && activeFile >= files.length) {
+      setActiveFile(0)
+    }
+  }, [activeFile, files.length])
 
   useEffect(() => {
     setPreviewError(null)
@@ -133,7 +137,7 @@ export function PreviewPanel({
 
     const nextFiles = [...files, newFile]
     onReplaceFiles(nextFiles)
-    onSelectFile?.(nextFiles.length - 1)
+    setActiveFile(nextFiles.length - 1)
 
     const folders = getFolderSegments(filePath)
     if (folders.length > 0) {
@@ -150,10 +154,10 @@ export function PreviewPanel({
   }
 
   const handleDeleteActiveFile = () => {
-  if (!onReplaceFiles || files.length === 0 || !files[activeFileIndex]) return
+    if (!onReplaceFiles || files.length === 0 || !files[activeFile]) return
 
-  const fileToDelete = files[activeFileIndex]
-  const nextFiles = files.filter((_, index) => index !== activeFileIndex)
+    const fileToDelete = files[activeFile]
+    const shouldDelete = window.confirm(`Delete file "${fileToDelete.path}"?`)
     if (!shouldDelete) return
 
     const nextFiles = files.filter((_, index) => index !== activeFile)
@@ -167,7 +171,7 @@ export function PreviewPanel({
     desktop: "100%",
   }
 
-// hapus, tidak dipakai
+  const fileTree = buildFileTree(files)
 
   const handleTabChange = (tab: "preview" | "code" | "explorer") => {
     if (!activeTabProp) {
@@ -198,9 +202,7 @@ export function PreviewPanel({
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5" />
-                <span className="truncate max-w-xs" title={previewError}>
-                  {previewError}
-                </span>
+                <span className="truncate max-w-xs" title={previewError}>Error in preview</span>
               </div>
               <button
                 onClick={() => window.alert(previewError)}
@@ -252,13 +254,8 @@ export function PreviewPanel({
               title="Refresh preview"
             >
               <RefreshCw className="h-4 w-4" />
-            </Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  title="Open in new tab"
-                  onClick={() => window.open(window.location.href, "_blank")}
-                >
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="Open in new tab">
               <ExternalLink className="h-4 w-4" />
             </Button>
           </div>
@@ -304,11 +301,11 @@ export function PreviewPanel({
             style={{ width: viewportWidths[viewport], maxWidth: "100%" }}
           >
             {files.length > 0 ? (
-                <SandboxPreview
-                  key={previewKey}
-                  files={previewFiles ?? files}
-                  onError={handlePreviewError}
-                />
+              <SandboxPreview 
+                key={previewKey}
+                files={previewFiles ?? buildBrowserPreviewFiles(files)} 
+                onError={handlePreviewError}
+              />
             ) : (
               <EmptyPreview />
             )}
