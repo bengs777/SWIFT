@@ -150,10 +150,11 @@ export function PreviewPanel({
   }
 
   const handleDeleteActiveFile = () => {
-    if (!onReplaceFiles || files.length === 0 || !files[activeFile]) return
+if (!onReplaceFiles || files.length === 0 || !files[activeFile]) return
 
-    const fileToDelete = files[activeFile]
-    const shouldDelete = window.confirm(`Delete file "${fileToDelete.path}"?`)
+const fileToDelete = files[activeFile]
+
+const nextFiles = files.filter((_, index) => index !== activeFile)
     if (!shouldDelete) return
 
     const nextFiles = files.filter((_, index) => index !== activeFile)
