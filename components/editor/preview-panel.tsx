@@ -299,7 +299,7 @@ export function PreviewPanel({
             {files.length > 0 ? (
               <SandboxPreview 
                 key={previewKey}
-                files={previewFiles ?? buildBrowserPreviewFiles(files)} 
+                files={previewFiles ?? (files)} 
                 onError={handlePreviewError}
               />
             ) : (
