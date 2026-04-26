@@ -79,3 +79,4 @@ the production database contains the Prisma tables, especially `User`,
 - OpenRouter free models are pinned in the runtime model list so the app stays on the free-only path by default.
 # Swift
 # swift
+# swift
