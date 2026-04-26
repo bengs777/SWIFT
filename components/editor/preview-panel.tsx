@@ -250,8 +250,13 @@ export function PreviewPanel({
               title="Refresh preview"
             >
               <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" title="Open in new tab">
+            </Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  title="Open in new tab"
+                  onClick={() => window.open(window.location.href, "_blank")}
+                >
               <ExternalLink className="h-4 w-4" />
             </Button>
           </div>
