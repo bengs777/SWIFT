@@ -61,18 +61,14 @@ export function PreviewPanel({
 }: PreviewPanelProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<"preview" | "code" | "explorer">("preview")
   const [viewport, setViewport] = useState<ViewportSize>("desktop")
-  const [activeFile, setActiveFile] = useState(0)
+  // hapus total, tidak perlu local state
   const [copied, setCopied] = useState(false)
   const [previewKey, setPreviewKey] = useState(0)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<string[]>(["app", "lib", "prisma"])
   const activeTab = activeTabProp || internalActiveTab
 
-  useEffect(() => {
-    if (files.length > 0 && activeFile >= files.length) {
-      setActiveFile(0)
-    }
-  }, [activeFile, files.length])
+  // hapus total
 
   useEffect(() => {
     setPreviewError(null)
