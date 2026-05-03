@@ -3,11 +3,17 @@ import { PrismaClient } from '@prisma/client'
 import { createClient } from '@libsql/client'
 import { env } from '@/lib/env'
 
-const globalForPrisma = global as unknown as { prisma: PrismaClient | null }
+const globalForPrisma = global as unknown as { prisma?: PrismaClient }
 
-let prisma: PrismaClient | null = null
+function initializePrisma(): PrismaClient {
+  if (env.nodeEnv !== 'production' && globalForPrisma.prisma) {
+    return globalForPrisma.prisma
+  }
 
-if (env.tursoDatabaseUrl) {
+  if (!env.tursoDatabaseUrl) {
+    throw new Error('TURSO_DATABASE_URL is required to initialize Prisma client')
+  }
+
   const prismaAdapter = new PrismaLibSQL(
     createClient({
       url: env.tursoDatabaseUrl,
@@ -15,17 +21,19 @@ if (env.tursoDatabaseUrl) {
     })
   )
 
-  prisma =
-    globalForPrisma.prisma ||
-    new PrismaClient({
-      adapter: prismaAdapter,
-      log: ['warn', 'error'],
-    })
+  const prismaClient = new PrismaClient({
+    adapter: prismaAdapter,
+    log: ['warn', 'error'],
+  })
 
-  if (env.nodeEnv !== 'production') globalForPrisma.prisma = prisma
-} else if (env.nodeEnv === 'production') {
-  throw new Error('TURSO_DATABASE_URL is required in production')
+  if (env.nodeEnv !== 'production') {
+    globalForPrisma.prisma = prismaClient
+  }
+
+  return prismaClient
 }
+
+const prisma = initializePrisma()
 
 export { prisma }
 export default prisma
